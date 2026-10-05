@@ -27,9 +27,9 @@ jobs:
     timeout-minutes: 30
 
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-      SUPABASE_REDIRECT_URL: ${{ secrets.SUPABASE_REDIRECT_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL || 'https://layuzuqhmidwvcydvvre.supabase.co' }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || vars.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_tR2MiYBocXc4eTaWTWRgXg_8DAPt-It' }}
+      SUPABASE_REDIRECT_URL: ${{ secrets.SUPABASE_REDIRECT_URL || vars.SUPABASE_REDIRECT_URL || 'com.godfirst.gesapp://login-callback/' }}
 
     steps:
       - name: Checkout repository
