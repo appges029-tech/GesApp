@@ -719,7 +719,6 @@ class AppDatabase {
       'cloud_sync_state',
       'cloud_tenant_cache',
       'app_users',
-      'audit_log',
     };
     for (final row in tableRows) {
       final table = row['name']?.toString();
