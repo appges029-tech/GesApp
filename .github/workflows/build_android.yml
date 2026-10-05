@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -52,6 +52,7 @@ jobs:
             --output "$WRAPPER"
           test "$(wc -c < "$WRAPPER")" -gt 30000
           jar tf "$WRAPPER" | grep -q 'org/gradle/wrapper/GradleWrapperMain.class'
+          chmod +x android/gradlew
 
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v6
