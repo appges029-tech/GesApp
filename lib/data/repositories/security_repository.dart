@@ -94,10 +94,13 @@ class SecurityRepository {
     final normalizedRole = _roles.contains(role) ? role : 'manager';
 
     final existingUsers = await hasUsers();
-    // A manager can provision a second local manager during initial
-    // onboarding.  The UI still controls access to account administration;
-    // keeping this repository operation available also permits local recovery
-    // and avoids preventing the second-approver workflow from being set up.
+    if (existingUsers &&
+        !allowAdminProvisioning &&
+        !OperatorSession.hasPermission('security.manage_users')) {
+      throw StateError(
+        'La création d’un autre compte local est réservée à l’administrateur.',
+      );
+    }
 
     final duplicate = firstIntValue(await _database.db.rawQuery(
           'SELECT COUNT(*) FROM app_users WHERE lower(username) = lower(?)',
