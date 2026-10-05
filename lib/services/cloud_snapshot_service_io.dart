@@ -54,6 +54,79 @@ class CloudSnapshotService {
     _timer = null;
   }
 
+  Future<void> resolveConflictUsingCloud() async {
+    if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
+    final orgId = OperatorSession.organizationId;
+    if (orgId == null) return;
+
+    _running = true;
+    status.value = const CloudSyncStatus(
+      state: 'restoring',
+      message: 'Restauration de la version cloud…',
+    );
+    try {
+      final membership = await _tenant.cachedMembership();
+      final secret = membership?.backupSecret;
+      if (membership == null || secret == null || secret.length < 16) {
+        throw StateError('Clé de sauvegarde de l’établissement indisponible.');
+      }
+
+      final metadata = await _remoteMetadata(orgId);
+      final remoteRevision = (metadata?['revision'] as num?)?.toInt() ?? 0;
+      final remotePath = metadata?['current_path']?.toString();
+      if (remotePath == null || remotePath.isEmpty || remoteRevision <= 0) {
+        throw StateError('Aucune version cloud exploitable n’est disponible.');
+      }
+
+      await _downloadAndRestore(
+        path: remotePath,
+        backupSecret: secret,
+        remoteRevision: remoteRevision,
+        expectedChecksum: metadata?['checksum_sha256']?.toString(),
+      );
+    } catch (e) {
+      await _tenant.updateSyncState(status: 'error', lastError: '$e');
+      status.value = CloudSyncStatus(state: 'error', message: '$e');
+    } finally {
+      _running = false;
+    }
+  }
+
+  Future<void> resolveConflictKeepingLocal() async {
+    if (!OperatorSession.isManager) {
+      status.value = const CloudSyncStatus(
+        state: 'error',
+        message: 'Seul un gestionnaire peut publier la version locale.',
+      );
+      return;
+    }
+    if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
+    final orgId = OperatorSession.organizationId;
+    if (orgId == null) return;
+
+    _running = true;
+    try {
+      final metadata = await _remoteMetadata(orgId);
+      final remoteRevision = (metadata?['revision'] as num?)?.toInt() ?? 0;
+      await _tenant.updateSyncState(
+        knownRemoteRevision: remoteRevision,
+        status: 'idle',
+        lastError: null,
+      );
+    } catch (e) {
+      await _tenant.updateSyncState(status: 'error', lastError: '$e');
+      status.value = CloudSyncStatus(state: 'error', message: '$e');
+      return;
+    } finally {
+      _running = false;
+    }
+
+    // Une nouvelle lecture des métadonnées est faite dans synchronize().
+    // Si un troisième appareil a publié entre-temps, le conflit sera détecté
+    // à nouveau au lieu d'écraser silencieusement sa version.
+    await synchronize(force: true);
+  }
+
   Future<void> synchronize({bool force = false}) async {
     if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
     final orgId = OperatorSession.organizationId;
