@@ -13,5 +13,7 @@ class CloudSnapshotService {
   final ValueNotifier<CloudSyncStatus> status = ValueNotifier(const CloudSyncStatus(state: 'unsupported', message: 'Synchronisation de snapshot non disponible sur cette plateforme.'));
   void start() {}
   void stop() {}
+  Future<void> resolveConflictUsingCloud() async {}
+  Future<void> resolveConflictKeepingLocal() async {}
   Future<void> synchronize({bool force = false}) async {}
 }
