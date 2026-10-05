@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gesapp/core/db/app_database.dart';
 import 'package:gesapp/core/layout/responsive_layout.dart';
 import 'package:gesapp/core/providers/repository_providers.dart';
+import 'package:gesapp/core/session/operator_session.dart';
 import 'package:gesapp/data/models/hr.dart';
 import 'package:gesapp/data/repositories/hr_repository.dart';
 import 'package:gesapp/features/hr/hr_screen.dart';
@@ -129,5 +130,32 @@ void main() {
     expect(button.onPressed, isNull);
     expect(find.text('Snapshot cloud indisponible'), findsOneWidget);
     expect(find.textContaining('sauvegardes JSON'), findsOneWidget);
+  });
+
+  testWidgets('un conflit propose les deux choix explicites au gestionnaire', (tester) async {
+    final service = CloudSnapshotService.instance;
+    final previous = service.status.value;
+    addTearDown(() => service.status.value = previous);
+    addTearDown(OperatorSession.clear);
+
+    OperatorSession.authenticate(
+      userId: 'manager-test',
+      displayName: 'Gestionnaire test',
+      role: 'manager',
+      organizationId: 'org-test',
+      organizationCode: 'TEST',
+      organizationName: 'École test',
+    );
+    service.status.value = const CloudSyncStatus(
+      state: 'conflict',
+      message: 'Conflit simulé',
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: CloudSyncScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Conflit de synchronisation'), findsOneWidget);
+    expect(find.text('Utiliser la version cloud'), findsOneWidget);
+    expect(find.text('Conserver cet appareil'), findsOneWidget);
   });
 }
