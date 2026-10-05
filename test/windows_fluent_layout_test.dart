@@ -6,15 +6,9 @@ import 'package:gesapp/core/windows/windows_panels.dart';
 import 'package:gesapp/core/windows/windows_ui.dart';
 
 void main() {
-  setUp(() {
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-  });
-
-  tearDown(() {
-    debugDefaultTargetPlatformOverride = null;
-  });
-
   testWidgets('Windows page scaffold uses desktop header at wide width', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -34,9 +28,12 @@ void main() {
     expect(find.text('Gestion des élèves'), findsOneWidget);
     expect(find.text('CONTENU'), findsOneWidget);
     expect(find.byType(AppBar), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('Windows module grid keeps all modules visible', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -59,6 +56,7 @@ void main() {
     expect(find.text('Élèves'), findsOneWidget);
     expect(find.text('Finances'), findsOneWidget);
     expect(find.text('Réglages'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   test('Windows desktop threshold remains 900 px', () {
