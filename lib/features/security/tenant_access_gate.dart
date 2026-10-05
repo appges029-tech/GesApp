@@ -10,6 +10,7 @@ import '../../data/repositories/tenant_repository.dart';
 import '../../services/tenant_cloud_service.dart';
 import '../../services/cloud_snapshot_service.dart';
 import '../../app/home_shell.dart';
+import '../../app/app_lock_gate.dart';
 
 class TenantAccessGate extends StatefulWidget {
   const TenantAccessGate({super.key});
@@ -21,6 +22,7 @@ class TenantAccessGate extends StatefulWidget {
 class _TenantAccessGateState extends State<TenantAccessGate> {
   bool _loading = true;
   TenantMembershipCache? _membership;
+  bool _offlineManagerAvailable = false;
   Object? _error;
   StreamSubscription<AuthState>? _authSubscription;
 
@@ -52,18 +54,23 @@ class _TenantAccessGateState extends State<TenantAccessGate> {
         return;
       }
       final membership = await TenantCloudService.instance.restoreCachedOrRemoteMembership();
+      final offlineManagerAvailable = membership == null &&
+          TenantCloudService.instance.currentCloudUser == null &&
+          await TenantCloudService.instance.canUnlockCachedManagerOffline();
       if (membership != null) {
         await CloudSnapshotService.instance.synchronize();
       }
       if (!mounted) return;
       setState(() {
         _membership = membership;
+        _offlineManagerAvailable = offlineManagerAvailable;
         _loading = false;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _error = error;
+        _offlineManagerAvailable = false;
         _loading = false;
       });
     }
@@ -84,6 +91,9 @@ class _TenantAccessGateState extends State<TenantAccessGate> {
         );
       }
       return const HomeShell();
+    }
+    if (_offlineManagerAvailable && TenantCloudService.instance.currentCloudUser == null) {
+      return const AppLockGate();
     }
     if (_error != null && TenantCloudService.instance.currentCloudUser != null) {
       return _TenantLookupErrorScreen(error: _error!, onRetry: _restore);
