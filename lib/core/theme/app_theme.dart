@@ -140,7 +140,6 @@ abstract final class AppTheme {
         side: BorderSide(color: dark ? AppColors.darkDivider : AppColors.divider),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(windows ? 6 : 12)),
         labelStyle: TextStyle(fontWeight: windows ? FontWeight.w600 : FontWeight.w700),
-        visualDensity: windows ? VisualDensity.compact : VisualDensity.standard,
       ),
       listTileTheme: ListTileThemeData(
         dense: windows,
