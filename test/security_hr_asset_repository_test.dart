@@ -68,6 +68,25 @@ void main() {
     expect(OperatorSession.isAuthenticated, isTrue);
   });
 
+  test('un gestionnaire ne peut pas créer arbitrairement un second compte local', () async {
+    await security.createUser(
+      username: 'principal',
+      displayName: 'Gestionnaire Principal',
+      role: 'manager',
+      pin: 'GesApp-Principal!',
+    );
+
+    await expectLater(
+      security.createUser(
+        username: 'intrus',
+        displayName: 'Compte non autorisé',
+        role: 'manager',
+        pin: 'GesApp-Intrus!',
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('cinq PIN incorrects verrouillent temporairement le compte', () async {
     final id = await security.createUser(
       username: 'securite',
