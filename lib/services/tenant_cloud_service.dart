@@ -222,6 +222,21 @@ class TenantCloudService {
     await _tenantRepo.clearMembership();
   }
 
+  Future<bool> canUnlockCachedManagerOffline() async {
+    final cached = await _tenantRepo.cachedMembership();
+    if (cached == null || !cached.active || !cached.isManager) return false;
+    final username = cached.username?.trim().toLowerCase();
+    if (username == null || username.isEmpty) return false;
+
+    final users = await SecurityRepository(AppDatabase.instance).users(activeOnly: true);
+    return users.any(
+      (user) =>
+          user.active &&
+          user.role == 'manager' &&
+          user.username.trim().toLowerCase() == username,
+    );
+  }
+
   Future<TenantMembershipCache?> restoreCachedOrRemoteMembership() async {
     if (!isConfigured) return null;
     if (_client.auth.currentSession != null) {
