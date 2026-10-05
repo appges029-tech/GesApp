@@ -201,4 +201,34 @@ void main() {
     );
   });
 
+
+  test('une écriture audit seule incrémente la révision locale de synchronisation', () async {
+    final beforeRows = await AppDatabase.instance.db.query(
+      'cloud_sync_state',
+      where: "id = 'main'",
+      limit: 1,
+    );
+    final before = beforeRows.first['local_revision'] as int;
+
+    await AppDatabase.instance.db.insert('audit_log', {
+      'entity_type': 'test',
+      'entity_id': 'audit-only',
+      'action': 'audit_only_change',
+      'old_value': null,
+      'new_value': 'changed',
+      'operator_name': 'Test',
+      'operator_id': 'manager-75',
+      'operator_role': 'manager',
+      'created_at': DateTime.now().toIso8601String(),
+    });
+
+    final afterRows = await AppDatabase.instance.db.query(
+      'cloud_sync_state',
+      where: "id = 'main'",
+      limit: 1,
+    );
+    final after = afterRows.first['local_revision'] as int;
+    expect(after, before + 1);
+  });
+
 }
