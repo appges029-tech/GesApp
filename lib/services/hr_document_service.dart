@@ -1,0 +1,3 @@
+export 'hr_document_service_stub.dart'
+    if (dart.library.io) 'hr_document_service_io.dart'
+    if (dart.library.html) 'hr_document_service_web.dart';

@@ -1,0 +1,151 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_REDIRECT_URL: ${{ secrets.SUPABASE_REDIRECT_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Ensure complete Windows platform scaffold
+        shell: pwsh
+        run: |
+          $needsBootstrap = (
+            -not (Test-Path "windows\runner\main.cpp") -or
+            -not (Test-Path "windows\runner\CMakeLists.txt") -or
+            -not (Test-Path "windows\flutter\CMakeLists.txt")
+          )
+
+          if ($needsBootstrap) {
+            Write-Host "Windows scaffold is incomplete. Regenerating it with Flutter..."
+
+            $installerBackup = Join-Path $env:RUNNER_TEMP "gesapp_installer.iss"
+            if (Test-Path "windows\installer\gesapp_installer.iss") {
+              Copy-Item "windows\installer\gesapp_installer.iss" $installerBackup -Force
+            }
+
+            if (Test-Path "windows") {
+              Remove-Item "windows" -Recurse -Force
+            }
+
+            flutter create --platforms=windows --org org.godfirst --project-name gesapp .
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            if (Test-Path $installerBackup) {
+              New-Item -ItemType Directory -Path "windows\installer" -Force | Out-Null
+              Copy-Item $installerBackup "windows\installer\gesapp_installer.iss" -Force
+            }
+          } else {
+            Write-Host "Windows scaffold is already complete."
+          }
+
+          if (-not (Test-Path "windows\runner\main.cpp")) {
+            throw "Flutter Windows scaffold regeneration failed: windows\runner\main.cpp is still missing."
+          }
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Silence MSVC experimental coroutine deprecation
+        shell: pwsh
+        run: |
+          $cmakeFile = "windows\CMakeLists.txt"
+          if (-not (Test-Path $cmakeFile)) {
+            throw "Windows CMakeLists.txt not found; cannot apply MSVC coroutine compatibility define."
+          }
+
+          $defineLine = "add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)"
+          $content = Get-Content $cmakeFile -Raw
+          if ($content -notmatch [regex]::Escape($defineLine)) {
+            $content = $content -replace "project\(([^\r\n]+)\)", "project(`$1)`r`n$defineLine"
+            Set-Content -Path $cmakeFile -Value $content -NoNewline
+          }
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+      # Les secrets GitHub deviennent des constantes Dart uniquement lorsqu'ils
+      # sont passés avec --dart-define. Ce test empêche de publier un .exe qui
+      # aurait reçu les secrets dans l'environnement mais pas dans le binaire.
+      - name: Verify Supabase compile-time configuration
+        shell: pwsh
+        run: |
+          flutter test test/supabase_config_test.dart `
+            --dart-define=SUPABASE_URL="$env:SUPABASE_URL" `
+            --dart-define=SUPABASE_PUBLISHABLE_KEY="$env:SUPABASE_PUBLISHABLE_KEY" `
+            --dart-define=SUPABASE_CONFIG_EXPECTED=true
+
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:SUPABASE_PUBLISHABLE_KEY)) {
+            throw "SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or SUPABASE_ANON_KEY) GitHub secrets are required for release builds."
+          }
+          flutter build windows --release `
+            --dart-define=SUPABASE_URL="$env:SUPABASE_URL" `
+            --dart-define=SUPABASE_PUBLISHABLE_KEY="$env:SUPABASE_PUBLISHABLE_KEY" `
+            --dart-define=SUPABASE_REDIRECT_URL="$env:SUPABASE_REDIRECT_URL"
+
+      - name: Locate build output
+        id: locate
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "build\windows\x64\runner\Release",
+            "build\windows\runner\Release"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) { throw "Dossier de build Windows introuvable (build\windows\...\Release)." }
+          $full = (Resolve-Path $found).Path
+          Write-Host "Release dir: $full"
+          "release_dir=$full" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer (.exe)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DGesAppReleaseDir=${{ steps.locate.outputs.release_dir }}" `
+            "windows\installer\gesapp_installer.iss"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GesApp-Windows-Installer
+          path: windows/installer/Output/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload portable build (folder, sans installeur)
+        uses: actions/upload-artifact@v4
+        with:
+          name: GesApp-Windows-Portable
+          path: ${{ steps.locate.outputs.release_dir }}
+          if-no-files-found: error
+          retention-days: 30

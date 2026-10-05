@@ -1,0 +1,124 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(
+        new FileInputStream(keystorePropertiesFile)
+    )
+}
+
+def requiredSigningProperties = [
+    "storePassword",
+    "keyPassword",
+    "keyAlias",
+    "storeFile",
+]
+
+def hasReleaseSigning =
+        keystorePropertiesFile.exists() &&
+        requiredSigningProperties.every { property ->
+            keystoreProperties.getProperty(property)?.trim()
+        }
+
+android {
+    namespace = "com.godfirst.gesapp"
+
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+
+        coreLibraryDesugaringEnabled true
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "com.godfirst.gesapp"
+
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storeFile = rootProject.file(
+                    keystoreProperties["storeFile"]
+                )
+                storePassword = keystoreProperties["storePassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+
+        release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.release
+            }
+
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring(
+        "com.android.tools:desugar_jdk_libs:2.1.4"
+    )
+}
+
+/*
+ * Empêche de produire une APK release non signée.
+ *
+ * Le build DEBUG de GitHub Actions n'est pas concerné.
+ */
+tasks.register("validateReleaseSigning") {
+    doLast {
+        if (!hasReleaseSigning) {
+            throw new GradleException(
+                "La release Android doit être signée pour être installable. " +
+                "Créez android/key.properties depuis " +
+                "android/key.properties.example et renseignez votre keystore."
+            )
+        }
+
+        def storeFilePath =
+                keystoreProperties.getProperty("storeFile")
+
+        if (!rootProject.file(storeFilePath).isFile()) {
+            throw new GradleException(
+                "Keystore Android introuvable : ${storeFilePath}. " +
+                "Corrigez storeFile dans android/key.properties."
+            )
+        }
+    }
+}
+
+tasks.named("preReleaseBuild").configure {
+    dependsOn(tasks.named("validateReleaseSigning"))
+}

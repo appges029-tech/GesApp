@@ -1,0 +1,23 @@
+# GesApp — Checklist Release finale
+
+- [ ] `flutter analyze` : 0 erreur / 0 warning.
+- [ ] `flutter test` : tous les tests passent.
+- [ ] Migration d'une base V19 réelle vers V22 sans perte.
+- [ ] Création d'une base V22 neuve.
+- [ ] Paiement espèces refusé si caisse fermée.
+- [ ] Paiement Mobile Money avec référence et compte mobile.
+- [ ] Remboursement espèces et remboursement Mobile Money depuis des comptes différents.
+- [ ] Avoir appliqué à une nouvelle échéance.
+- [ ] Transfert Caisse → Banque sans modifier recettes/dépenses.
+- [ ] Génération d'échéances avec simulation et lot.
+- [ ] Annulation d'un lot non payé.
+- [ ] Recouvrement : relance, promesse et prochaine action.
+- [ ] Dépense avec justificatif.
+- [ ] Dépense récurrente → demande en attente → approbation.
+- [ ] Import CSV/Excel : dry-run puis transaction.
+- [ ] Sauvegarde locale chiffrée puis restauration.
+- [ ] Export/import JSON Android ↔ Web sans table technique.
+- [ ] Notification système Android ouvrant GesApp.
+- [ ] Mode clair / sombre / système.
+- [ ] Build APK release.
+- [ ] Build Web release avec base-href GitHub Pages.

@@ -1,0 +1,5 @@
+# Copiez ce fichier vers android/key.properties et ne versionnez jamais ce dernier.
+storePassword=REMPLACER
+keyPassword=REMPLACER
+keyAlias=gesapp
+storeFile=/chemin/absolu/vers/gesapp-release.jks

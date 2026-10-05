@@ -1,0 +1,1 @@
+// Placeholder project root; regenerate with Flutter on macOS before native macOS release build.

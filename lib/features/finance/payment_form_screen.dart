@@ -1,0 +1,834 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/providers/repository_providers.dart';
+import '../../core/utils/formatters.dart';
+import '../../services/receipt_printer.dart';
+import '../../services/receipt_printing_preferences.dart';
+import '../../services/receipt_service.dart';
+import '../../data/models/finance_full.dart';
+import '../../data/models/student.dart';
+import '../../data/models/family.dart';
+
+enum _PayerType { student, family }
+
+class PaymentFormScreen extends ConsumerStatefulWidget {
+  const PaymentFormScreen({super.key});
+
+  @override
+  ConsumerState<PaymentFormScreen> createState() => _PaymentFormScreenState();
+}
+
+class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _note = TextEditingController();
+  _PayerType _payerType = _PayerType.student;
+  String? _studentId;
+  String? _familyId;
+  String _method = 'Espèces';
+  String? _cashAccountId = 'main_cash';
+  List<Map<String, Object?>> _paymentMethods = const [];
+  List<Map<String, Object?>> _cashAccounts = const [];
+  bool _loadingPaymentConfig = true;
+  final _reference = TextEditingController();
+  final _payerPhone = TextEditingController();
+  final _operator = TextEditingController();
+  List<DueItem> _payerDues = const [];
+  final Set<String> _selectedDues = {};
+  bool _saving = false;
+  bool _loadingBalance = false;
+  int? _outstanding;
+  int _credit = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadPaymentConfiguration);
+  }
+
+  Future<void> _loadPaymentConfiguration() async {
+    try {
+      final repo = ref.read(financeRepositoryProvider);
+      final methods = await repo.paymentMethods();
+      final accounts = await repo.cashAccounts();
+      if (!mounted) return;
+      setState(() {
+        _paymentMethods = methods;
+        _cashAccounts = accounts;
+        if (methods.isNotEmpty && !methods.any((m) => m['name'] == _method)) {
+          _method = methods.first['name'] as String;
+        }
+        _cashAccountId = _compatibleAccountId(_method, current: _cashAccountId);
+        _loadingPaymentConfig = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingPaymentConfig = false);
+    }
+  }
+
+  Map<String, Object?>? _methodRow(String name) {
+    for (final row in _paymentMethods) {
+      if ((row['name'] as String).toLowerCase() == name.toLowerCase()) return row;
+    }
+    return null;
+  }
+
+  String? _compatibleAccountId(String method, {String? current}) {
+    final expected = (_methodRow(method)?['account_type'] as String?) ?? 'cash';
+    final compatible = _cashAccounts.where((a) => a['type'] == expected).toList();
+    if (compatible.isEmpty) return null;
+    if (current != null && compatible.any((a) => a['id'] == current)) return current;
+    return compatible.first['id'] as String;
+  }
+
+  bool get _referenceRequired => (_methodRow(_method)?['requires_reference'] as int? ?? 0) == 1;
+  String get _methodAccountType => (_methodRow(_method)?['account_type'] as String?) ?? 'cash';
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _note.dispose(); _reference.dispose(); _payerPhone.dispose(); _operator.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadOutstanding() async {
+    final studentId = _studentId;
+    final familyId = _familyId;
+    if ((_payerType == _PayerType.student && studentId == null) ||
+        (_payerType == _PayerType.family && familyId == null)) {
+      if (mounted) setState(() {
+        _outstanding = null;
+        _credit = 0;
+        _payerDues = const [];
+        _selectedDues.clear();
+      });
+      return;
+    }
+    setState(() => _loadingBalance = true);
+    try {
+      final repo = ref.read(financeRepositoryProvider);
+      final value = _payerType == _PayerType.student
+          ? await repo.outstandingForStudent(studentId!)
+          : await repo.outstandingForFamily(familyId!);
+      final dues = await repo.unpaidForPayer(studentId:_payerType==_PayerType.student?studentId:null,familyId:_payerType==_PayerType.family?familyId:null);
+      final credit = await repo.availableCredit(
+        studentId: _payerType == _PayerType.student ? studentId : null,
+        familyId: _payerType == _PayerType.family ? familyId : null,
+      );
+      if (mounted) setState(() { _outstanding = value; _credit = credit; _payerDues=dues; _selectedDues..clear()..addAll(dues.map((d)=>d.id)); });
+    } finally {
+      if (mounted) setState(() => _loadingBalance = false);
+    }
+  }
+
+  Future<void> _applyCredit() async {
+    if (_credit <= 0 || _selectedDues.isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      final applied = await ref.read(financeRepositoryProvider).applyAvailableCredit(
+            studentId: _payerType == _PayerType.student ? _studentId : null,
+            familyId: _payerType == _PayerType.family ? _familyId : null,
+            dueIds: _selectedDues.toList(),
+          );
+      ref.invalidate(dashboardProvider);
+      ref.invalidate(unpaidDuesProvider);
+      ref.invalidate(auditEntriesProvider);
+      if (_payerType == _PayerType.family && _familyId != null) {
+        ref.invalidate(familyBalanceProvider(_familyId!));
+      }
+      await _loadOutstanding();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Avoir appliqué : ${formatXaf(applied)}.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _save() async {
+    final payerOk =
+        _payerType == _PayerType.student ? _studentId != null : _familyId != null;
+    if (!_formKey.currentState!.validate() || !payerOk) return;
+    setState(() => _saving = true);
+    try {
+      final amount = int.parse(_amount.text.replaceAll(RegExp(r'\D'), ''));
+      final repo = ref.read(financeRepositoryProvider);
+      final String receipt;
+      final String beneficiaryName;
+      if (_payerType == _PayerType.student) {
+        receipt = await repo.recordPayment(
+          studentId: _studentId!,
+          amount: amount,
+          method: _method,
+          note: _note.text, dueIds:_selectedDues.toList(), cashAccountId:_cashAccountId, transactionReference:_reference.text, payerPhone:_payerPhone.text, paymentOperator:_operator.text,
+        );
+        final students = await ref.read(studentsProvider.future);
+        beneficiaryName = students.firstWhere((s) => s.id == _studentId).fullName;
+      } else {
+        receipt = await repo.recordFamilyPayment(
+          familyId: _familyId!,
+          amount: amount,
+          method: _method,
+          note: _note.text, dueIds:_selectedDues.toList(), cashAccountId:_cashAccountId, transactionReference:_reference.text, payerPhone:_payerPhone.text, paymentOperator:_operator.text,
+        );
+        final families = await ref.read(familiesProvider.future);
+        beneficiaryName = families.firstWhere((f) => f.id == _familyId).name;
+      }
+      ref.invalidate(recentPaymentsProvider);
+      ref.invalidate(dashboardProvider);
+      ref.invalidate(unpaidDuesProvider);
+      ref.invalidate(auditEntriesProvider);
+      if (_payerType == _PayerType.family) {
+        ref.invalidate(familyBalanceProvider(_familyId!));
+      }
+      if (!mounted) return;
+      final receiptPrefs = await ReceiptPrintingPreferencesStore().load();
+      if (receiptPrefs.autoPrint && receiptPrefs.format.isPos) {
+        await _printReceipt(
+          receiptNumber: receipt,
+          beneficiaryName: beneficiaryName,
+          amount: amount,
+          paidAt: DateTime.now(),
+          format: receiptPrefs.format,
+          directToPrinter: true,
+          preferences: receiptPrefs,
+        );
+      }
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Paiement enregistré'),
+          content: Text('Reçu $receipt créé avec succès pour $beneficiaryName.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Fermer'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () async {
+                await _printReceipt(
+                  receiptNumber: receipt,
+                  beneficiaryName: beneficiaryName,
+                  amount: amount,
+                  paidAt: DateTime.now(),
+                  format: ReceiptFormat.a5,
+                );
+              },
+              icon: const Icon(Icons.description_outlined),
+              label: const Text('Reçu A5'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                final prefs = await ReceiptPrintingPreferencesStore().load();
+                final posFormat = prefs.format.isPos ? prefs.format : ReceiptFormat.pos80;
+                await _printReceipt(
+                  receiptNumber: receipt,
+                  beneficiaryName: beneficiaryName,
+                  amount: amount,
+                  paidAt: DateTime.now(),
+                  format: posFormat,
+                  directToPrinter: true,
+                  preferences: prefs,
+                );
+              },
+              icon: const Icon(Icons.print_outlined),
+              label: const Text('Imprimer POS'),
+            ),
+          ],
+        ),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.toString().replaceFirst('Bad state: ', ''),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _printReceipt({
+    required String receiptNumber,
+    required String beneficiaryName,
+    required int amount,
+    required DateTime paidAt,
+    ReceiptFormat format = ReceiptFormat.a5,
+    bool directToPrinter = false,
+    ReceiptPrintingPreferences? preferences,
+  }) async {
+    final establishment = await ref.read(establishmentProvider.future);
+    final allocationRows = await ref.read(financeRepositoryProvider).paymentReceiptLines(receiptNumber);
+    final lines = allocationRows
+        .map((r) => ReceiptLine(
+              label: '${r['fee_name']} · ${r['period_key']}',
+              amount: r['amount'] as int,
+            ))
+        .toList();
+    final prefs = preferences ?? await ReceiptPrintingPreferencesStore().load();
+    final printer = ReceiptPrinter(ReceiptService());
+    try {
+      await printer.printReceipt(
+        establishment: establishment,
+        receiptNumber: receiptNumber,
+        beneficiaryName: beneficiaryName,
+        amount: amount,
+        paymentMethod: _method,
+        paidAt: paidAt,
+        paymentReference: _reference.text.trim(),
+        lines: lines,
+        format: format,
+        directToPrinter: directToPrinter,
+        printerUrl: prefs.printerUrl,
+        showLogo: format.isPos ? prefs.showLogo : true,
+        includeDetails: format.isPos ? prefs.includeDetails : true,
+        copies: format.isPos ? prefs.copies : 1,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Impossible d'imprimer le reçu : $error")),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final students = ref.watch(studentsProvider);
+    final families = ref.watch(familiesProvider);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Enregistrer un paiement')),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            SegmentedButton<_PayerType>(
+              segments: const [
+                ButtonSegment(
+                  value: _PayerType.student,
+                  label: Text('Élève'),
+                  icon: Icon(Icons.person_outline),
+                ),
+                ButtonSegment(
+                  value: _PayerType.family,
+                  label: Text('Famille'),
+                  icon: Icon(Icons.family_restroom),
+                ),
+              ],
+              selected: {_payerType},
+              onSelectionChanged: (value) {
+                setState(() {
+                  _payerType = value.first;
+                  _outstanding = null;
+                  _amount.clear();
+                });
+                _loadOutstanding();
+              },
+            ),
+            const SizedBox(height: 12),
+            if (_payerType == _PayerType.student)
+              students.when(
+                data: (items) => _StudentSearchField(
+                  students: items,
+                  selectedId: _studentId,
+                  onSelected: (student) {
+                    setState(() {
+                      _studentId = student?.id;
+                      _outstanding = null;
+                      _amount.clear();
+                    });
+                    _loadOutstanding();
+                  },
+                ),
+                loading: () => const LinearProgressIndicator(),
+                error: (error, _) => Text('$error'),
+              )
+            else
+              families.when(
+                data: (items) => items.isEmpty
+                    ? const Text(
+                        'Aucune famille enregistrée. Créez-en une depuis Élèves > Familles.',
+                      )
+                    : _FamilySearchField(
+                        families: items,
+                        selectedId: _familyId,
+                        onSelected: (family) {
+                          setState(() {
+                            _familyId = family?.id;
+                            _outstanding = null;
+                            _amount.clear();
+                          });
+                          _loadOutstanding();
+                        },
+                      ),
+                loading: () => const LinearProgressIndicator(),
+                error: (error, _) => Text('$error'),
+              ),
+            const SizedBox(height: 12),
+            if (_loadingBalance)
+              const LinearProgressIndicator()
+            else if (_outstanding != null)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.account_balance_wallet_outlined),
+                  title: const Text('Solde restant dû'),
+                  subtitle: Text(
+                    _outstanding == 0
+                        ? 'Aucune échéance impayée'
+                        : 'Les montants supérieurs deviennent un avoir',
+                  ),
+                  trailing: Text(
+                    formatXaf(_outstanding!),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  onTap: _outstanding! > 0
+                      ? () => _amount.text = _outstanding.toString()
+                      : null,
+                ),
+              ),
+            if (_credit > 0) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.savings_outlined),
+                  title: const Text('Avoir disponible'),
+                  subtitle: const Text('Utilisez cet avoir sur les échéances sélectionnées sans créer une nouvelle recette.'),
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(formatXaf(_credit), style: const TextStyle(fontWeight: FontWeight.w800)),
+                      TextButton(
+                        onPressed: _saving || _selectedDues.isEmpty ? null : _applyCredit,
+                        child: const Text('Utiliser'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (_payerDues.isNotEmpty) ...[
+              Text('Échéances à régler',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
+              const SizedBox(height:6),
+              ..._payerDues.map((d)=>CheckboxListTile(dense:true,contentPadding:EdgeInsets.zero,value:_selectedDues.contains(d.id),title:Text('${d.feeName} · ${d.periodKey}'),subtitle:Text('Reste ${formatXaf(d.amountDue-d.amountPaid)}'),onChanged:(v)=>setState(()=>v==true?_selectedDues.add(d.id):_selectedDues.remove(d.id)))),
+              const SizedBox(height:8),
+            ],
+            TextFormField(
+              controller: _amount,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Montant (FCFA) *',
+                prefixIcon: Icon(Icons.payments_outlined),
+              ),
+              validator: (value) {
+                final amount = int.tryParse(
+                  (value ?? '').replaceAll(RegExp(r'\D'), ''),
+                );
+                if (amount == null || amount <= 0) return 'Montant invalide';
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            if (_loadingPaymentConfig)
+              const LinearProgressIndicator()
+            else ...[
+              DropdownButtonFormField<String>(
+                initialValue: _paymentMethods.any((m) => m['name'] == _method) ? _method : null,
+                decoration: const InputDecoration(
+                  labelText: 'Mode de paiement',
+                  prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                ),
+                items: _paymentMethods
+                    .map((m) => DropdownMenuItem(value: m['name'] as String, child: Text(m['name'] as String)))
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _method = value;
+                    _cashAccountId = _compatibleAccountId(value, current: _cashAccountId);
+                  });
+                },
+                validator: (value) => value == null ? 'Moyen de paiement obligatoire' : null,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _cashAccounts.any((a) => a['id'] == _cashAccountId && a['type'] == _methodAccountType) ? _cashAccountId : null,
+                decoration: const InputDecoration(labelText: 'Caisse / compte'),
+                items: _cashAccounts
+                    .where((a) => a['type'] == _methodAccountType)
+                    .map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String)))
+                    .toList(),
+                onChanged: (value) => setState(() => _cashAccountId = value),
+                validator: (value) => value == null ? 'Caisse / compte obligatoire' : null,
+              ),
+              const SizedBox(height: 12),
+              if (_referenceRequired) ...[
+                TextFormField(
+                  controller: _reference,
+                  decoration: const InputDecoration(labelText: 'Référence transaction *'),
+                  validator: (value) => (value ?? '').trim().isEmpty ? 'Référence obligatoire' : null,
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (_methodAccountType == 'mobile') ...[
+                TextFormField(controller: _operator, decoration: const InputDecoration(labelText: 'Opérateur (MTN, Airtel…)')),
+                const SizedBox(height: 12),
+                TextFormField(controller: _payerPhone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Numéro payeur')),
+                const SizedBox(height: 12),
+              ],
+            ],
+            TextFormField(
+              controller: _note,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Note',
+                prefixIcon: Icon(Icons.notes_outlined),
+              ),
+            ),
+            const SizedBox(height: 22),
+            FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: const Icon(Icons.check_circle_outline),
+              label: Text(
+                _saving ? 'Enregistrement…' : 'Valider le paiement',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Normalise une chaîne pour une recherche insensible à la casse et aux accents.
+String _normalizeSearch(String value) {
+  const from = 'àâäáãåèéêëìíîïòóôöõùúûüçñÀÂÄÁÃÅÈÉÊËÌÍÎÏÒÓÔÖÕÙÚÛÜÇÑ';
+  const to = 'aaaaaaeeeeiiiiooooouuuucnAAAAAAEEEEIIIIOOOOOUUUUCN';
+  final buffer = StringBuffer();
+  for (final rune in value.toLowerCase().runes) {
+    final char = String.fromCharCode(rune);
+    final index = from.indexOf(char);
+    buffer.write(index >= 0 ? to[index] : char);
+  }
+  return buffer.toString();
+}
+
+/// Champ de recherche d'élève : remplace la liste déroulante classique par
+/// un champ texte avec suggestions filtrées en direct (nom, matricule),
+/// beaucoup plus rapide à utiliser lorsqu'il y a de nombreux élèves.
+class _StudentSearchField extends StatefulWidget {
+  const _StudentSearchField({
+    required this.students,
+    required this.selectedId,
+    required this.onSelected,
+  });
+
+  final List<Student> students;
+  final String? selectedId;
+  final ValueChanged<Student?> onSelected;
+
+  @override
+  State<_StudentSearchField> createState() => _StudentSearchFieldState();
+}
+
+class _StudentSearchFieldState extends State<_StudentSearchField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  String _label(Student s) => '${s.fullName} · ${s.classroomName}';
+
+  Student? _findById(String? id) {
+    if (id == null) return null;
+    for (final s in widget.students) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _label2(_findById(widget.selectedId)));
+    _focusNode = FocusNode();
+  }
+
+  String _label2(Student? s) => s == null ? '' : _label(s);
+
+  @override
+  void didUpdateWidget(covariant _StudentSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedId != oldWidget.selectedId) {
+      final selected = _findById(widget.selectedId);
+      if (selected == null) {
+        _controller.clear();
+      } else {
+        _controller.text = _label(selected);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FormField<String>(
+      initialValue: widget.selectedId,
+      validator: (value) => value == null ? 'Élève obligatoire' : null,
+      builder: (state) {
+        if (state.value != widget.selectedId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) state.didChange(widget.selectedId);
+          });
+        }
+        return RawAutocomplete<Student>(
+          textEditingController: _controller,
+          focusNode: _focusNode,
+          displayStringForOption: _label,
+          optionsBuilder: (value) {
+            final query = _normalizeSearch(value.text.trim());
+            if (query.isEmpty) return widget.students.take(40);
+            return widget.students.where((s) {
+              final haystack = _normalizeSearch('${s.fullName} ${s.classroomName} ${s.registrationNumber ?? ''}');
+              return haystack.contains(query);
+            }).take(40);
+          },
+          onSelected: (student) {
+            state.didChange(student.id);
+            widget.onSelected(student);
+          },
+          fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+            return TextField(
+              controller: controller,
+              focusNode: focusNode,
+              decoration: InputDecoration(
+                labelText: 'Élève *',
+                hintText: 'Rechercher par nom ou matricule…',
+                prefixIcon: const Icon(Icons.person_search_outlined),
+                suffixIcon: controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          controller.clear();
+                          state.didChange(null);
+                          widget.onSelected(null);
+                        },
+                      ),
+                errorText: state.errorText,
+              ),
+              onChanged: (text) {
+                if (state.value != null && text != _label2(_findById(state.value))) {
+                  state.didChange(null);
+                  widget.onSelected(null);
+                }
+              },
+            );
+          },
+          optionsViewBuilder: (context, onSelected, options) {
+            final list = options.toList();
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280, minWidth: 280),
+                  child: list.isEmpty
+                      ? const Padding(padding: EdgeInsets.all(16), child: Text('Aucun élève trouvé'))
+                      : ListView.builder(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: list.length,
+                          itemBuilder: (context, index) {
+                            final s = list[index];
+                            return ListTile(
+                              dense: true,
+                              title: Text(s.fullName),
+                              subtitle: Text(
+                                '${s.classroomName}${s.registrationNumber != null && s.registrationNumber!.isNotEmpty ? ' · ${s.registrationNumber}' : ''}',
+                              ),
+                              onTap: () => onSelected(s),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Champ de recherche de famille, même principe que [_StudentSearchField].
+class _FamilySearchField extends StatefulWidget {
+  const _FamilySearchField({
+    required this.families,
+    required this.selectedId,
+    required this.onSelected,
+  });
+
+  final List<FamilyItem> families;
+  final String? selectedId;
+  final ValueChanged<FamilyItem?> onSelected;
+
+  @override
+  State<_FamilySearchField> createState() => _FamilySearchFieldState();
+}
+
+class _FamilySearchFieldState extends State<_FamilySearchField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  String _label(FamilyItem f) => '${f.name} (${f.studentCount} élève(s))';
+
+  FamilyItem? _findById(String? id) {
+    if (id == null) return null;
+    for (final f in widget.families) {
+      if (f.id == id) return f;
+    }
+    return null;
+  }
+
+  String _label2(FamilyItem? f) => f == null ? '' : _label(f);
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _label2(_findById(widget.selectedId)));
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FamilySearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedId != oldWidget.selectedId) {
+      final selected = _findById(widget.selectedId);
+      if (selected == null) {
+        _controller.clear();
+      } else {
+        _controller.text = _label(selected);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FormField<String>(
+      initialValue: widget.selectedId,
+      validator: (value) => value == null ? 'Famille obligatoire' : null,
+      builder: (state) {
+        if (state.value != widget.selectedId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) state.didChange(widget.selectedId);
+          });
+        }
+        return RawAutocomplete<FamilyItem>(
+          textEditingController: _controller,
+          focusNode: _focusNode,
+          displayStringForOption: _label,
+          optionsBuilder: (value) {
+            final query = _normalizeSearch(value.text.trim());
+            if (query.isEmpty) return widget.families.take(40);
+            return widget.families.where((f) {
+              final haystack = _normalizeSearch('${f.name} ${f.primaryPhone ?? ''} ${f.secondaryPhone ?? ''}');
+              return haystack.contains(query);
+            }).take(40);
+          },
+          onSelected: (family) {
+            state.didChange(family.id);
+            widget.onSelected(family);
+          },
+          fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+            return TextField(
+              controller: controller,
+              focusNode: focusNode,
+              decoration: InputDecoration(
+                labelText: 'Famille *',
+                hintText: 'Rechercher par nom ou téléphone…',
+                prefixIcon: const Icon(Icons.family_restroom),
+                suffixIcon: controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          controller.clear();
+                          state.didChange(null);
+                          widget.onSelected(null);
+                        },
+                      ),
+                errorText: state.errorText,
+              ),
+              onChanged: (text) {
+                if (state.value != null && text != _label2(_findById(state.value))) {
+                  state.didChange(null);
+                  widget.onSelected(null);
+                }
+              },
+            );
+          },
+          optionsViewBuilder: (context, onSelected, options) {
+            final list = options.toList();
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280, minWidth: 280),
+                  child: list.isEmpty
+                      ? const Padding(padding: EdgeInsets.all(16), child: Text('Aucune famille trouvée'))
+                      : ListView.builder(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: list.length,
+                          itemBuilder: (context, index) {
+                            final f = list[index];
+                            return ListTile(
+                              dense: true,
+                              title: Text(f.name),
+                              subtitle: Text('${f.studentCount} élève(s)${f.primaryPhone != null && f.primaryPhone!.isNotEmpty ? ' · ${f.primaryPhone}' : ''}'),
+                              onTap: () => onSelected(f),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
