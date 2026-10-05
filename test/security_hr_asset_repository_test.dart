@@ -115,6 +115,7 @@ void main() {
       displayName: 'Gestionnaire Deux',
       role: 'manager',
       pin: '5678',
+      allowAdminProvisioning: true,
     );
     expect((await security.authenticate(firstId, '1234')).success, isTrue);
     expect(await security.authorizeSensitiveAction(username: 'gestion1', pin: '1234', action: 'test'), isNull);
