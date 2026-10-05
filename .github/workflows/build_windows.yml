@@ -16,7 +16,7 @@ jobs:
       SUPABASE_REDIRECT_URL: ${{ secrets.SUPABASE_REDIRECT_URL || vars.SUPABASE_REDIRECT_URL || 'com.godfirst.gesapp://login-callback/' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@v2
