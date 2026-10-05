@@ -112,10 +112,16 @@ void main() {
 
   test('la date de référence choisit le bon tarif même si la date limite est antérieure', () async {
     final target = await createClass('Test-Reference');
-    await students.add(
+    final studentId = await students.add(
       firstName: 'Référence',
       lastName: 'Tarif',
       classroomId: target.$2,
+    );
+    await AppDatabase.instance.db.update(
+      'student_enrollments',
+      {'effective_from': DateTime(2026, 10, 1).toIso8601String()},
+      where: 'student_id = ?',
+      whereArgs: [studentId],
     );
     await finance.addFeeCategory(name: 'Scolarité octobre', periodicity: 'mensuelle');
     final fee = (await finance.feeCategories()).single;
