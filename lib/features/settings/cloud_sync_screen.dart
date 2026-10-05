@@ -45,16 +45,51 @@ class CloudSyncScreen extends StatelessWidget {
                   if (value.message != null) ...[const SizedBox(height: 8), Text(value.message!)],
                   if (value.lastSyncedAt != null) ...[const SizedBox(height: 8), Text('Dernière synchronisation : ${value.lastSyncedAt!.toLocal()}')],
                   const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: unsupported || value.state == 'syncing' || value.state == 'restoring'
-                          ? null
-                          : () => service.synchronize(force: OperatorSession.isManager),
-                      icon: const Icon(Icons.sync_rounded),
-                      label: Text(OperatorSession.isAdmin ? 'Rechercher une mise à jour' : 'Synchroniser maintenant'),
+                  if (value.state == 'conflict') ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final confirmed = await _confirmConflictAction(
+                            context,
+                            title: 'Utiliser la version cloud ?',
+                            message: 'Les modifications locales non synchronisées de cet appareil seront remplacées par la dernière version cloud.',
+                          );
+                          if (confirmed) await service.resolveConflictUsingCloud();
+                        },
+                        icon: const Icon(Icons.cloud_download_outlined),
+                        label: const Text('Utiliser la version cloud'),
+                      ),
                     ),
-                  ),
+                    if (OperatorSession.isManager) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () async {
+                            final confirmed = await _confirmConflictAction(
+                              context,
+                              title: 'Conserver les données de cet appareil ?',
+                              message: 'GesApp vérifiera encore le cloud, puis publiera les données locales comme une nouvelle révision. Si le cloud change entre-temps, le conflit sera bloqué à nouveau.',
+                            );
+                            if (confirmed) await service.resolveConflictKeepingLocal();
+                          },
+                          icon: const Icon(Icons.cloud_upload_outlined),
+                          label: const Text('Conserver cet appareil'),
+                        ),
+                      ),
+                    ],
+                  ] else
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: unsupported || value.state == 'syncing' || value.state == 'restoring'
+                            ? null
+                            : () => service.synchronize(force: OperatorSession.isManager),
+                        icon: const Icon(Icons.sync_rounded),
+                        label: Text(OperatorSession.isAdmin ? 'Rechercher une mise à jour' : 'Synchroniser maintenant'),
+                      ),
+                    ),
                 ]),
               ),
             );
@@ -75,7 +110,7 @@ class CloudSyncScreen extends StatelessWidget {
                   Text(
                     value.state == 'unsupported'
                         ? 'La synchronisation de snapshot n’est pas disponible sur Web pour le moment. Les données Web restent locales à ce navigateur ; utilisez les sauvegardes JSON pour les exporter ou les restaurer.'
-                        : '• vérification toutes les 10 minutes lorsque GesApp est ouvert ;\n• aucun envoi si aucune donnée n’a changé ;\n• un administrateur télécharge les mises à jour mais ne publie jamais de données ;\n• un conflit entre deux appareils bloque l’écrasement automatique ;\n• le snapshot est chiffré avant son envoi au bucket privé Supabase.',
+                        : '• vérification toutes les 10 minutes lorsque GesApp est ouvert ;\n• aucun envoi si aucune donnée n’a changé ;\n• un administrateur télécharge les mises à jour mais ne publie jamais de données ;\n• un conflit entre deux appareils bloque l’écrasement automatique et propose un choix explicite ;\n• le snapshot est chiffré avant son envoi au bucket privé Supabase.',
                   ),
                 ]),
               ),
@@ -93,6 +128,31 @@ class CloudSyncScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static Future<bool> _confirmConflictAction(
+    BuildContext context, {
+    required String title,
+    required String message,
+  }) async {
+    return (await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(title),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Continuer'),
+              ),
+            ],
+          ),
+        )) ??
+        false;
   }
 
   static IconData _icon(String state) => switch (state) {
