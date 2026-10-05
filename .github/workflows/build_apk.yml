@@ -18,13 +18,28 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Restore official Gradle 8.14.3 wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRAPPER="android/gradle/wrapper/gradle-wrapper.jar"
+          mkdir -p "$(dirname "$WRAPPER")"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar \
+            --output "$WRAPPER"
+          test "$(wc -c < "$WRAPPER")" -gt 30000
+          jar tf "$WRAPPER" | grep -q 'org/gradle/wrapper/GradleWrapperMain.class'
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v6
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@v2
