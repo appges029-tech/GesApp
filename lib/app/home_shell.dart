@@ -148,7 +148,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   TextButton.icon(
                     onPressed: () async {
                       await TenantCloudService.instance.signOut();
-                      if (mounted) Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+                      // TenantAccessGate écoute onAuthStateChange et remonte
+                      // automatiquement l'écran de connexion. Ne pas forcer
+                      // une seconde navigation pendant la désactivation de
+                      // l'arbre Flutter.
                     },
                     icon: const Icon(Icons.logout, size: 18),
                     label: const Text('Déconnexion'),
