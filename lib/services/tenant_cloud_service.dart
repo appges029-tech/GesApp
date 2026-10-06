@@ -366,10 +366,14 @@ class TenantCloudService {
         final remote = await loadMyMembership();
         if (remote != null) return remote;
 
-        // Une réponse distante valide sans appartenance active est
-        // autoritative : ne jamais retomber silencieusement sur un ancien
-        // cache local.
-        await _invalidateCachedAuthorization();
+        // Un véritable candidat administrateur n'a encore aucun cache tenant.
+        // En revanche, si cet appareil avait déjà une appartenance et que le
+        // serveur n'en renvoie plus, la révocation est autoritative.
+        final previous = await _tenantRepo.cachedMembership();
+        if (previous != null) {
+          await _invalidateCachedAuthorization();
+          await _client.auth.signOut(scope: SignOutScope.local);
+        }
         return null;
       } catch (error) {
         if (!_isTransientNetworkError(error)) rethrow;
