@@ -59,18 +59,19 @@ class TenantRepository {
 
   static const _secure = FlutterSecureStorage();
   static const _secretPrefix = 'gesapp.cloud.backup_secret.';
-  static const _boundOrganizationKey = 'gesapp.cloud.bound_organization_id';
-
   Future<void> ensureOrganizationBinding(String organizationId) async {
-    final bound = await _secure.read(key: _boundOrganizationKey);
+    final rows = await _database.db.query(
+      'cloud_tenant_cache',
+      columns: ['organization_id'],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final bound = rows.first['organization_id']?.toString();
     if (bound != null && bound.isNotEmpty && bound != organizationId) {
       throw StateError(
         'Cette installation GesApp est déjà liée à un autre établissement. '
         'La séparation des données empêche de mélanger deux écoles sur la même base locale.',
       );
-    }
-    if (bound == null || bound.isEmpty) {
-      await _secure.write(key: _boundOrganizationKey, value: organizationId);
     }
   }
 
@@ -139,11 +140,24 @@ class TenantRepository {
   }
 
   Future<void> clearMembership({bool clearSecret = false}) async {
-    final current = await cachedMembership();
-    await _database.db.delete('cloud_tenant_cache');
-    if (clearSecret && current != null) {
+    final rows = await _database.db.query(
+      'cloud_tenant_cache',
+      limit: 1,
+    );
+    final orgId =
+        rows.isEmpty ? null : rows.first['organization_id']?.toString();
+
+    await _database.db.update(
+      'cloud_tenant_cache',
+      {
+        'active': 0,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+    );
+
+    if (clearSecret && orgId != null && orgId.isNotEmpty) {
       try {
-        await _secure.delete(key: '$_secretPrefix${current.organizationId}');
+        await _secure.delete(key: '$_secretPrefix$orgId');
       } catch (_) {}
     }
     OperatorSession.clear();
