@@ -129,8 +129,8 @@ void main() {
     );
     OperatorSession.clear();
 
-    expect(
-      () => security.resetPin(
+    await expectLater(
+      security.resetPin(
         userId: userId,
         newPin: 'NouveauMotDePasse-456!',
       ),
