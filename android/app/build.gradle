@@ -97,7 +97,7 @@ dependencies {
  *
  * Le build DEBUG de GitHub Actions n'est pas concerné.
  */
-tasks.register("validateReleaseSigning") {
+def validateReleaseSigning = tasks.register("validateReleaseSigning") {
     doLast {
         if (!hasReleaseSigning) {
             throw new GradleException(
@@ -119,6 +119,11 @@ tasks.register("validateReleaseSigning") {
     }
 }
 
-tasks.named("preReleaseBuild").configure {
-    dependsOn(tasks.named("validateReleaseSigning"))
+/*
+ * AGP crée preReleaseBuild après l'évaluation initiale du script.
+ * Utiliser matching/configureEach évite de faire échouer les builds debug
+ * lorsque la tâche release n'existe pas encore au moment de la configuration.
+ */
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(validateReleaseSigning)
 }
