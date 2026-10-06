@@ -59,16 +59,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            if dart run sqflite_common_ffi_web:setup --force; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Échec du setup SQLite Web après 3 tentatives."
-              exit 1
-            fi
-            sleep $((attempt * 5))
-          done
+          # Le setup sqflite peut échouer lorsqu'il compile son worker dans le
+          # contexte d'un gros projet Flutter avec build hooks. Le mainteneur
+          # recommande alors de générer les binaires dans un projet Dart
+          # isolé puis de les copier dans web/.
+          TMP_DIR="$(mktemp -d)"
+          dart create -t web "$TMP_DIR/sqflite_setup" --force
+          cd "$TMP_DIR/sqflite_setup"
+          dart pub add sqflite_common_ffi_web:1.2.0
+          dart run sqflite_common_ffi_web:setup --force
+          test -s web/sqlite3.wasm
+          test -s web/sqflite_sw.js
+          cp web/sqlite3.wasm "$GITHUB_WORKSPACE/web/sqlite3.wasm"
+          cp web/sqflite_sw.js "$GITHUB_WORKSPACE/web/sqflite_sw.js"
+          cd "$GITHUB_WORKSPACE"
+          rm -rf "$TMP_DIR"
 
       - name: Analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
