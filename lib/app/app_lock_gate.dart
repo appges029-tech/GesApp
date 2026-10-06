@@ -44,21 +44,20 @@ class _AppLockGateState extends ConsumerState<AppLockGate> with WidgetsBindingOb
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      unawaited(_synchronizeThenLock());
+      unawaited(_lockImmediately());
+    } else if (state == AppLifecycleState.resumed &&
+        OperatorSession.isAuthenticated) {
+      unawaited(CloudSnapshotService.instance.synchronize());
     }
   }
 
-  Future<void> _synchronizeThenLock() async {
+  Future<void> _lockImmediately() async {
     if (_backgroundTransitionRunning) return;
     _backgroundTransitionRunning = true;
     try {
-      if (OperatorSession.isAuthenticated) {
-        try {
-          await CloudSnapshotService.instance.synchronize();
-        } catch (_) {
-          // Le verrouillage local ne doit jamais être bloqué par une panne réseau.
-        }
-      }
+      // Ne jamais lancer une requête réseau pendant la mise en arrière-plan.
+      // Les modifications restent locales et seront envoyées au prochain
+      // déverrouillage/retour resumed.
       OperatorSession.clear();
       await _refreshAndLock();
     } finally {
@@ -93,6 +92,7 @@ class _AppLockGateState extends ConsumerState<AppLockGate> with WidgetsBindingOb
       return LockScreen(onUnlocked: () {
         if (!mounted) return;
         setState(() => _locked = false);
+        unawaited(CloudSnapshotService.instance.synchronize());
       });
     }
     if (_needsSetup) {
