@@ -49,13 +49,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Le réseau n'est sollicité qu'au retour au premier plan. Android peut
+    // suspendre DNS/socket précisément pendant inactive/paused.
     if (state == AppLifecycleState.resumed) {
-      CloudSnapshotService.instance.synchronize();
-    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      // Dans le flux multitenant courant, HomeShell est monté directement par
-      // TenantAccessGate : la session n'est pas vidée ici et la synchronisation
-      // d'arrière-plan reste donc valide. AppLockGate, lorsqu'il est utilisé,
-      // synchronise de son côté avant de vider la session.
       CloudSnapshotService.instance.synchronize();
     }
   }
