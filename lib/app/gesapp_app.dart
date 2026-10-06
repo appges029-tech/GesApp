@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/sync/sync_maintenance.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_controller.dart';
 import '../features/security/tenant_access_gate.dart';
@@ -15,14 +17,20 @@ class GesApp extends StatelessWidget {
     final windows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        navigatorKey: appNavigatorKey,
-        title: 'GesApp',
-        theme: windows ? AppTheme.windowsLight : AppTheme.light,
-        darkTheme: windows ? AppTheme.windowsDark : AppTheme.dark,
-        themeMode: controller.mode,
-        home: const TenantAccessGate(),
+      builder: (context, _) => ValueListenableBuilder<int>(
+        valueListenable: SyncMaintenance.dataEpoch,
+        builder: (context, epoch, __) => ProviderScope(
+          key: ValueKey<int>(epoch),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            navigatorKey: appNavigatorKey,
+            title: 'GesApp',
+            theme: windows ? AppTheme.windowsLight : AppTheme.light,
+            darkTheme: windows ? AppTheme.windowsDark : AppTheme.dark,
+            themeMode: controller.mode,
+            home: const TenantAccessGate(),
+          ),
+        ),
       ),
     );
   }

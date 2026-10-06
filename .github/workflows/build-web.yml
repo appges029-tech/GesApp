@@ -55,9 +55,13 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Install SQLite Web runtime
-        run: dart run sqflite_common_ffi_web:setup --force
-
+      - name: Verify SQLite Web runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s web/sqlite3.wasm
+          test -s web/sqflite_sw.js
+          echo "SQLite Web runtime versionné et disponible."
       - name: Analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
 

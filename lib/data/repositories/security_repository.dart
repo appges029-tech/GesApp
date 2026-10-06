@@ -246,8 +246,14 @@ class SecurityRepository {
   }
 
   Future<void> resetPin({required String userId, required String newPin, bool allowAdminProvisioning = false}) async {
-    if (!allowAdminProvisioning && OperatorSession.isAuthenticated && !OperatorSession.hasPermission('security.manage_users') && OperatorSession.userId != userId) {
-      throw StateError('Seul l’administrateur peut réinitialiser le mot de passe d’un autre compte.');
+    if (!allowAdminProvisioning) {
+      if (!OperatorSession.isAuthenticated) {
+        throw StateError('Une session authentifiée est requise pour réinitialiser un mot de passe.');
+      }
+      if (!OperatorSession.hasPermission('security.manage_users') &&
+          OperatorSession.userId != userId) {
+        throw StateError('Seul l’administrateur peut réinitialiser le mot de passe d’un autre compte.');
+      }
     }
     _validateSecret(newPin);
     final salt = _randomSalt();
@@ -358,7 +364,11 @@ class SecurityRepository {
     final salt = rows.first['recovery_code_salt'] as String?;
     if (hash == null || salt == null) throw StateError('Aucun code de récupération n’a été généré pour ce compte.');
     if (await _pbkdf2(recoveryCode.trim(), salt, iterations: 60000) != hash) throw StateError('Code de récupération invalide.');
-    await resetPin(userId: userId, newPin: newPin);
+    await resetPin(
+      userId: userId,
+      newPin: newPin,
+      allowAdminProvisioning: true,
+    );
     await _database.db.update('app_users', {'recovery_code_hash': null, 'recovery_code_salt': null}, where: 'id=?', whereArgs: [userId]);
   }
 

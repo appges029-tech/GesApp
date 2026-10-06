@@ -52,7 +52,10 @@ abstract final class OperatorSession {
     String? organizationName,
     String? cloudUserId,
   }) {
-    final normalizedRole = role == 'admin' ? 'admin' : 'manager';
+    if (role != 'admin' && role != 'manager') {
+      throw StateError('Rôle GesApp non reconnu : $role');
+    }
+    final normalizedRole = role;
     _userId = userId;
     _displayName = displayName.trim().isEmpty
         ? (normalizedRole == 'admin' ? 'Administrateur' : 'Gestionnaire')

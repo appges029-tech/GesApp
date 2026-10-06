@@ -53,7 +53,7 @@ class CloudSyncScreen extends StatelessWidget {
                           final confirmed = await _confirmConflictAction(
                             context,
                             title: 'Utiliser la version cloud ?',
-                            message: 'Les modifications locales non synchronisées de cet appareil seront remplacées par la dernière version cloud.',
+                            message: 'GesApp archivera d’abord la version locale chiffrée dans le bucket privé, puis restaurera la dernière version cloud. Aucune des deux versions ne sera supprimée.',
                           );
                           if (confirmed) await service.resolveConflictUsingCloud();
                         },
@@ -70,7 +70,7 @@ class CloudSyncScreen extends StatelessWidget {
                             final confirmed = await _confirmConflictAction(
                               context,
                               title: 'Conserver les données de cet appareil ?',
-                              message: 'GesApp vérifiera encore le cloud, puis publiera les données locales comme une nouvelle révision. Si le cloud change entre-temps, le conflit sera bloqué à nouveau.',
+                              message: 'GesApp vérifiera encore le cloud, puis publiera les données locales comme une nouvelle révision. L’ancienne version cloud restera conservée pour récupération.',
                             );
                             if (confirmed) await service.resolveConflictKeepingLocal();
                           },
@@ -160,6 +160,7 @@ class CloudSyncScreen extends StatelessWidget {
   static IconData _icon(String state) => switch (state) {
         'up_to_date' => Icons.cloud_done_outlined,
         'syncing' || 'restoring' => Icons.cloud_sync_outlined,
+        'pending' => Icons.cloud_upload_outlined,
         'conflict' => Icons.warning_amber_rounded,
         'error' => Icons.cloud_off_outlined,
         _ => Icons.cloud_outlined,
@@ -169,6 +170,7 @@ class CloudSyncScreen extends StatelessWidget {
         'up_to_date' => 'Cloud à jour',
         'syncing' => 'Synchronisation…',
         'restoring' => 'Restauration depuis Supabase…',
+        'pending' => 'Modifications en attente d’envoi',
         'conflict' => 'Conflit de synchronisation',
         'error' => 'Synchronisation interrompue',
         'unsupported' => 'Snapshot cloud indisponible',
