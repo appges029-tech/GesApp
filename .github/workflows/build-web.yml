@@ -55,28 +55,13 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Install SQLite Web runtime
+      - name: Verify SQLite Web runtime
         shell: bash
         run: |
           set -euo pipefail
-          # Le setup sqflite peut échouer lorsqu'il compile son worker dans le
-          # contexte d'un gros projet Flutter avec build hooks. Le mainteneur
-          # recommande alors de générer les binaires dans un projet Dart
-          # isolé puis de les copier dans web/.
-          TMP_DIR="$(mktemp -d)"
-          dart create -t web "$TMP_DIR/sqflite_setup" --force
-          cd "$TMP_DIR/sqflite_setup"
-          dart pub add sqflite_common_ffi_web:1.2.0
-          dart pub global activate webdev
-          export PATH="$PATH:$HOME/.pub-cache/bin"
-          dart run sqflite_common_ffi_web:setup --force
           test -s web/sqlite3.wasm
           test -s web/sqflite_sw.js
-          cp web/sqlite3.wasm "$GITHUB_WORKSPACE/web/sqlite3.wasm"
-          cp web/sqflite_sw.js "$GITHUB_WORKSPACE/web/sqflite_sw.js"
-          cd "$GITHUB_WORKSPACE"
-          rm -rf "$TMP_DIR"
-
+          echo "SQLite Web runtime versionné et disponible."
       - name: Analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
 
