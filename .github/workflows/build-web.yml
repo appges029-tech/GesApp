@@ -67,6 +67,8 @@ jobs:
           dart create -t web "$TMP_DIR/sqflite_setup" --force
           cd "$TMP_DIR/sqflite_setup"
           dart pub add sqflite_common_ffi_web:1.2.0
+          dart pub global activate webdev
+          export PATH="$PATH:$HOME/.pub-cache/bin"
           dart run sqflite_common_ffi_web:setup --force
           test -s web/sqlite3.wasm
           test -s web/sqflite_sw.js
