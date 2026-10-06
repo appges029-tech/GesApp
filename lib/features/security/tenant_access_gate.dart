@@ -103,14 +103,12 @@ class _TenantAccessGateState extends State<TenantAccessGate> {
       // est le premier administrateur : il doit créer son établissement.
       return _CreateTenantScreen(onCreated: (membership) {
         setState(() => _membership = membership);
-        unawaited(CloudSnapshotService.instance.synchronize());
       });
     }
     return _CloudLoginScreen(
       error: _error,
       onConnected: (membership) {
         setState(() => _membership = membership);
-        unawaited(CloudSnapshotService.instance.synchronize());
       },
     );
   }
@@ -304,6 +302,10 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
         username: _username.text,
         password: _password.text,
       );
+      // Ne jamais ouvrir HomeShell avant que la première restauration cloud
+      // éventuelle soit terminée. Cela empêche les faux conflits et les
+      // écritures sur une base qui va être remplacée.
+      await CloudSnapshotService.instance.synchronize();
       widget.onConnected(membership);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -512,7 +514,11 @@ class _CreateTenantScreenState extends State<_CreateTenantScreen> {
       _error = null;
     });
     try {
-      final membership = await TenantCloudService.instance.bootstrapOrganization(name: _name.text, preferredCode: _code.text);
+      final membership = await TenantCloudService.instance.bootstrapOrganization(
+        name: _name.text,
+        preferredCode: _code.text,
+      );
+      await CloudSnapshotService.instance.synchronize(force: true);
       widget.onCreated(membership);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
