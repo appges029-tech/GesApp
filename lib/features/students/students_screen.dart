@@ -166,58 +166,87 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       ),
     ];
 
-    final body = Padding(
-      padding: desktop ? EdgeInsets.zero : const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Column(
-        children: [
-          WindowsFilterPanel(
-            active: _filter.isActive,
-            onClear: _clear,
-            onApply: () => _load(reset: true),
-            search: TextField(
-              controller: _search,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: 'Nom, matricule, parent ou téléphone',
-                suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: () => _load(reset: true)),
-              ),
-              onSubmitted: (_) => _load(reset: true),
-            ),
-            filters: filterWidgets,
+    final filtersPanel = WindowsFilterPanel(
+      active: _filter.isActive,
+      onClear: _clear,
+      onApply: () => _load(reset: true),
+      search: TextField(
+        controller: _search,
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.search),
+          hintText: 'Nom, matricule, parent ou téléphone',
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () => _load(reset: true),
           ),
-          SizedBox(height: desktop ? 14 : 8),
-          Expanded(
-            child: _items.isEmpty && !_loading
-                ? const Center(child: Text('Aucun élève pour ces critères.'))
-                : RefreshIndicator(
-                    onRefresh: () => _load(reset: true),
-                    child: desktop
-                        ? _StudentDesktopList(
-                            students: _items,
-                            hasMore: _hasMore,
-                            loading: _loading,
-                            onLoadMore: _load,
-                            onOpen: _openStudent,
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.only(bottom: 96),
-                            itemCount: _items.length + (_hasMore ? 1 : 0),
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
-                            itemBuilder: (_, i) {
-                              if (i == _items.length) {
-                                return Center(
-                                  child: _loading
-                                      ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())
-                                      : OutlinedButton(onPressed: _load, child: const Text('Charger plus')),
-                                );
-                              }
-                              final st = _items[i];
-                              return _StudentCard(student: st, onTap: () => _openStudent(st));
-                            },
-                          ),
+        ),
+        onSubmitted: (_) => _load(reset: true),
+      ),
+      filters: filterWidgets,
+    );
+
+    final desktopBody = Column(
+      children: [
+        filtersPanel,
+        const SizedBox(height: 14),
+        Expanded(
+          child: _items.isEmpty && !_loading
+              ? const Center(child: Text('Aucun élève pour ces critères.'))
+              : RefreshIndicator(
+                  onRefresh: () => _load(reset: true),
+                  child: _StudentDesktopList(
+                    students: _items,
+                    hasMore: _hasMore,
+                    loading: _loading,
+                    onLoadMore: _load,
+                    onOpen: _openStudent,
                   ),
-          ),
-          if (_loading && _items.isNotEmpty) const LinearProgressIndicator(),
+                ),
+        ),
+        if (_loading && _items.isNotEmpty) const LinearProgressIndicator(),
+      ],
+    );
+
+    final mobileBody = RefreshIndicator(
+      onRefresh: () => _load(reset: true),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 112),
+        children: [
+          filtersPanel,
+          const SizedBox(height: 8),
+          if (_items.isEmpty && !_loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(child: Text('Aucun élève pour ces critères.')),
+            )
+          else ...[
+            for (var i = 0; i < _items.length; i++) ...[
+              _StudentCard(
+                student: _items[i],
+                onTap: () => _openStudent(_items[i]),
+              ),
+              if (i != _items.length - 1) const SizedBox(height: 8),
+            ],
+            if (_hasMore) ...[
+              const SizedBox(height: 12),
+              Center(
+                child: _loading
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(),
+                      )
+                    : OutlinedButton(
+                        onPressed: _load,
+                        child: const Text('Charger plus'),
+                      ),
+              ),
+            ],
+          ],
+          if (_loading && _items.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+          ],
         ],
       ),
     );
@@ -240,7 +269,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
         if (desktop) WindowsCommandButton(icon: Icons.person_add_alt_1, label: 'Inscrire', primary: true, onPressed: _openAdd),
       ],
       floatingActionButton: desktop ? null : FloatingActionButton.extended(onPressed: _openAdd, icon: const Icon(Icons.person_add_alt_1), label: const Text('Inscrire')),
-      body: body,
+      body: desktop ? desktopBody : mobileBody,
     );
   }
 
