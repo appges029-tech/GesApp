@@ -120,7 +120,9 @@ class CloudSyncScreen extends StatelessWidget {
           OutlinedButton.icon(
             onPressed: () async {
               await TenantCloudService.instance.signOut();
-              if (context.mounted) Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+              // La déconnexion Supabase déclenche la reconstruction de
+              // TenantAccessGate. Une navigation manuelle simultanée peut
+              // désactiver deux fois les mêmes InheritedElements.
             },
             icon: const Icon(Icons.logout),
             label: const Text('Déconnecter ce compte'),
