@@ -85,8 +85,9 @@ class CloudSnapshotService {
         expectedChecksum: metadata?['checksum_sha256']?.toString(),
       );
     } catch (e) {
-      await _tenant.updateSyncState(status: 'error', lastError: '$e');
-      status.value = CloudSyncStatus(state: 'error', message: '$e');
+      final message = _syncErrorMessage(e);
+      await _tenant.updateSyncState(status: 'error', lastError: message);
+      status.value = CloudSyncStatus(state: 'error', message: message);
     } finally {
       _running = false;
     }
@@ -114,8 +115,9 @@ class CloudSnapshotService {
         lastError: null,
       );
     } catch (e) {
-      await _tenant.updateSyncState(status: 'error', lastError: '$e');
-      status.value = CloudSyncStatus(state: 'error', message: '$e');
+      final message = _syncErrorMessage(e);
+      await _tenant.updateSyncState(status: 'error', lastError: message);
+      status.value = CloudSyncStatus(state: 'error', message: message);
       return;
     } finally {
       _running = false;
@@ -280,21 +282,60 @@ class CloudSnapshotService {
         if (await exported.file.exists()) await exported.file.delete();
       }
     } catch (e) {
-      await _tenant.updateSyncState(status: 'error', lastError: '$e');
-      status.value = CloudSyncStatus(state: 'error', message: '$e');
+      final message = _syncErrorMessage(e);
+      await _tenant.updateSyncState(status: 'error', lastError: message);
+      status.value = CloudSyncStatus(state: 'error', message: message);
     } finally {
       _running = false;
     }
   }
 
   Future<Map<String, dynamic>?> _remoteMetadata(String orgId) async {
-    final rows = await SupabaseBootstrap.client
-        .from('sync_metadata')
-        .select('revision,current_path,checksum_sha256,size_bytes,uploaded_at')
-        .eq('organization_id', orgId)
-        .limit(1);
+    final rows = await _retryTransientNetwork(
+      () => SupabaseBootstrap.client
+          .from('sync_metadata')
+          .select('revision,current_path,checksum_sha256,size_bytes,uploaded_at')
+          .eq('organization_id', orgId)
+          .limit(1),
+    );
     if (rows.isEmpty) return null;
     return Map<String, dynamic>.from(rows.first);
+  }
+
+  Future<T> _retryTransientNetwork<T>(Future<T> Function() action) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await action();
+      } catch (error) {
+        lastError = error;
+        if (!_isTransientNetworkError(error) || attempt == 2) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 450 * (attempt + 1)));
+      }
+    }
+    throw StateError('Échec réseau inattendu : $lastError');
+  }
+
+  bool _isTransientNetworkError(Object error) {
+    final raw = error.toString().toLowerCase();
+    return raw.contains('socketexception') ||
+        raw.contains('failed host lookup') ||
+        raw.contains('network is unreachable') ||
+        raw.contains('connection refused') ||
+        raw.contains('connection reset') ||
+        raw.contains('connection closed') ||
+        raw.contains('timed out') ||
+        raw.contains('timeoutexception');
+  }
+
+  String _syncErrorMessage(Object error) {
+    if (_isTransientNetworkError(error)) {
+      return 'Connexion Internet temporairement indisponible. '
+          'Vos données restent enregistrées sur cet appareil. '
+          'GesApp réessaiera automatiquement et vous pouvez aussi toucher '
+          '« Synchroniser maintenant » lorsque la connexion revient.';
+    }
+    return error.toString();
   }
 
   Future<void> _downloadAndRestore({
@@ -304,7 +345,9 @@ class CloudSnapshotService {
     String? expectedChecksum,
   }) async {
     status.value = const CloudSyncStatus(state: 'restoring', message: 'Mise à jour depuis le cloud…');
-    final encrypted = await SupabaseBootstrap.client.storage.from(_bucket).download(path);
+    final encrypted = await _retryTransientNetwork(
+      () => SupabaseBootstrap.client.storage.from(_bucket).download(path),
+    );
     if (expectedChecksum != null && expectedChecksum.isNotEmpty) {
       final actualChecksum = sha256.convert(encrypted).toString();
       if (actualChecksum != expectedChecksum) {
