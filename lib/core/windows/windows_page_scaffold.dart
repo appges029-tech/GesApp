@@ -42,7 +42,8 @@ class WindowsPageScaffold extends StatelessWidget {
 
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor:
+          backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -55,42 +56,56 @@ class WindowsPageScaffold extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(28, 16, 20, 14),
                   child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ],
                         ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                      if (actions.isNotEmpty) ...[
+                        const SizedBox(width: 16),
+                        Flexible(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.end,
+                            children: actions,
                           ),
-                        ],
+                        ),
                       ],
-                    ),
+                    ],
                   ),
-                  if (actions.isNotEmpty) ...[
-                    const SizedBox(width: 16),
-                    Flexible(
-                      child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: actions),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+            const SizedBox(height: 8),
             Expanded(
               child: Align(
                 alignment: Alignment.topCenter,
@@ -135,8 +150,16 @@ class WindowsCommandButton extends StatelessWidget {
       );
     }
     if (primary) {
-      return FilledButton.icon(onPressed: onPressed, icon: Icon(icon, size: 18), label: Text(label));
+      return FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      );
     }
-    return OutlinedButton.icon(onPressed: onPressed, icon: Icon(icon, size: 18), label: Text(label));
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
   }
 }
