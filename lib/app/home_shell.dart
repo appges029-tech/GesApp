@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../core/layout/responsive_layout.dart';
 import '../core/session/operator_session.dart';
@@ -195,27 +196,51 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     return LayoutBuilder(builder: (context, constraints) {
       final desktop = constraints.maxWidth >= AppBreakpoints.tablet;
       if (!desktop) {
-        final mobileDestinations = [
-          for (final index in _mobileIndexes) destinations[index],
-          const NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Plus'),
-        ];
         final mobileSelected = _mobileIndexes.indexOf(_index);
         return Scaffold(
+          extendBody: true,
           body: _pageContent(pages),
-          bottomNavigationBar: Container(
-            decoration: BoxDecoration(border: Border(top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .7)))),
-            child: NavigationBar(
-              selectedIndex: mobileSelected < 0 ? 4 : mobileSelected,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              onDestinationSelected: (value) {
-                if (value == 4) {
-                  _showMore(entries);
-                } else {
-                  _select(_mobileIndexes[value]);
-                }
-              },
-              destinations: mobileDestinations,
-            ),
+          bottomNavigationBar: GlassTabBar.bottom(
+            selectedIndex: mobileSelected < 0 ? 4 : mobileSelected,
+            onTabSelected: (value) {
+              if (value == 4) {
+                _showMore(entries);
+              } else {
+                _select(_mobileIndexes[value]);
+              }
+            },
+            tabs: const [
+              GlassTab(
+                icon: Icon(Icons.space_dashboard_outlined),
+                activeIcon: Icon(Icons.space_dashboard_rounded),
+                label: 'Accueil',
+                glowColor: AppColors.primary,
+              ),
+              GlassTab(
+                icon: Icon(Icons.school_outlined),
+                activeIcon: Icon(Icons.school_rounded),
+                label: 'Élèves',
+                glowColor: AppColors.primary,
+              ),
+              GlassTab(
+                icon: Icon(Icons.account_balance_wallet_outlined),
+                activeIcon: Icon(Icons.account_balance_wallet_rounded),
+                label: 'Finances',
+                glowColor: AppColors.primary,
+              ),
+              GlassTab(
+                icon: Icon(Icons.analytics_outlined),
+                activeIcon: Icon(Icons.analytics_rounded),
+                label: 'Rapports',
+                glowColor: AppColors.primary,
+              ),
+              GlassTab(
+                icon: Icon(Icons.grid_view_outlined),
+                activeIcon: Icon(Icons.grid_view_rounded),
+                label: 'Plus',
+                glowColor: AppColors.accent,
+              ),
+            ],
           ),
         );
       }
