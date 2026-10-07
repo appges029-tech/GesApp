@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/recovery.dart';
 
@@ -276,7 +277,7 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
                                         children: [
                                           TextButton.icon(onPressed: () => _showHistory(item), icon: const Icon(Icons.history), label: const Text('Historique')),
                                           const SizedBox(width: 8),
-                                          FilledButton.tonalIcon(onPressed: () => _addAction(item), icon: const Icon(Icons.add_ic_call_outlined), label: const Text('Relancer')),
+                                          if (!OperatorSession.isReadOnly) FilledButton.tonalIcon(onPressed: () => _addAction(item), icon: const Icon(Icons.add_ic_call_outlined), label: const Text('Relancer')),
                                         ],
                                       ),
                                     ],
