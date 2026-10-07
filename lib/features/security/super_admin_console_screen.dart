@@ -1,0 +1,804 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../services/super_admin_service.dart';
+
+class SuperAdminConsoleScreen extends StatefulWidget {
+  const SuperAdminConsoleScreen({super.key});
+
+  @override
+  State<SuperAdminConsoleScreen> createState() => _SuperAdminConsoleScreenState();
+}
+
+class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
+  final _email = TextEditingController();
+  final _code = TextEditingController();
+  final _service = SuperAdminService.instance;
+
+  Timer? _timer;
+  Map<String, dynamic>? _data;
+  String? _error;
+  bool _busy = false;
+  bool _refreshing = false;
+  bool _showCreate = false;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _email.dispose();
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (_email.text.trim().isEmpty || _code.text.trim().isEmpty) {
+      setState(() => _error = 'Renseignez l’identifiant et le code Super Admin.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _service.login(email: _email.text, code: _code.text);
+      _code.clear();
+      await _refresh();
+      _timer?.cancel();
+      _timer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => _refresh(silent: true),
+      );
+    } catch (e) {
+      if (mounted) setState(() => _error = _message(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _refresh({bool silent = false}) async {
+    if (_refreshing || !_service.isAuthenticated) return;
+    _refreshing = true;
+    if (!silent && mounted) setState(() {});
+    try {
+      final value = await _service.overview();
+      if (mounted) {
+        setState(() {
+          _data = value;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted && !silent) setState(() => _error = _message(e));
+      if (!_service.isAuthenticated && mounted) {
+        _timer?.cancel();
+        setState(() => _data = null);
+      }
+    } finally {
+      _refreshing = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _logout() async {
+    _timer?.cancel();
+    await _service.logout();
+    if (!mounted) return;
+    setState(() {
+      _data = null;
+      _error = null;
+      _showCreate = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_service.isAuthenticated || _data == null) return _loginPage();
+    return _dashboard();
+  }
+
+  Widget _loginPage() {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Super Admin')),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    CircleAvatar(
+                      radius: 34,
+                      backgroundColor: scheme.primaryContainer,
+                      child: Icon(
+                        Icons.admin_panel_settings_rounded,
+                        size: 38,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Console Super Admin',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Contrôler les écoles, les comptes, les appareils et les synchronisations.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: _email,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Identifiant Super Admin',
+                        prefixIcon: Icon(Icons.alternate_email_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _code,
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      onSubmitted: (_) => _login(),
+                      decoration: const InputDecoration(
+                        labelText: 'Code Super Admin',
+                        prefixIcon: Icon(Icons.pin_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _login,
+                      icon: const Icon(Icons.login_rounded),
+                      label: Text(_busy ? 'Connexion…' : 'Ouvrir la console'),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      _ErrorBanner(text: _error!),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      'Le code n’est pas stocké dans l’application. La session est temporaire et validée côté serveur.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dashboard() {
+    final totals = _map(_data!['totals']);
+    final schools = _list(_data!['organizations']);
+    final events = _list(_data!['recent_activity']);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Contrôle SaaS'),
+        actions: [
+          IconButton(
+            tooltip: 'Actualiser',
+            onPressed: _refreshing ? null : _refresh,
+            icon: _refreshing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: 'Déconnexion',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout_rounded),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.monitor_heart_rounded),
+                title: const Text(
+                  'Supervision active',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+                subtitle: const Text('Actualisation automatique toutes les 5 secondes'),
+                trailing: const _LiveDot(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _Metrics(totals: totals),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () => setState(() => _showCreate = !_showCreate),
+              icon: Icon(_showCreate ? Icons.close_rounded : Icons.add_business_rounded),
+              label: Text(_showCreate ? 'Fermer' : 'Créer une école'),
+            ),
+            if (_showCreate) ...[
+              const SizedBox(height: 12),
+              _CreateSchoolCard(
+                onCreated: () async {
+                  setState(() => _showCreate = false);
+                  await _refresh();
+                },
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              _ErrorBanner(text: _error!),
+            ],
+            const SizedBox(height: 22),
+            _TitleRow(
+              title: 'Établissements',
+              subtitle: schools.length.toString() + ' au total',
+            ),
+            const SizedBox(height: 10),
+            if (schools.isEmpty)
+              const _EmptyCard(
+                icon: Icons.school_outlined,
+                text: 'Aucune école enregistrée.',
+              )
+            else
+              for (final school in schools) ...[
+                _SchoolCard(
+                  school: school,
+                  onToggle: (active) async {
+                    await _service.setSchoolActive(
+                      school['id'].toString(),
+                      active,
+                    );
+                    await _refresh();
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+            const SizedBox(height: 18),
+            const _TitleRow(
+              title: 'Activité en direct',
+              subtitle: '30 dernières opérations',
+            ),
+            const SizedBox(height: 10),
+            if (events.isEmpty)
+              const _EmptyCard(
+                icon: Icons.timeline_outlined,
+                text: 'Aucune activité centralisée pour le moment.',
+              )
+            else
+              Card(
+                child: Column(
+                  children: [
+                    for (var i = 0; i < events.length && i < 30; i++) ...[
+                      _ActivityTile(event: events[i]),
+                      if (i < events.length - 1 && i < 29)
+                        const Divider(height: 1),
+                    ],
+                  ],
+                ),
+              ),
+            const SizedBox(height: 28),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _map(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return const {};
+  }
+
+  static List<Map<String, dynamic>> _list(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  static String _message(Object e) =>
+      e.toString().replaceFirst('Bad state: ', '');
+}
+
+class _Metrics extends StatelessWidget {
+  const _Metrics({required this.totals});
+  final Map<String, dynamic> totals;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <(IconData, String, String)>[
+      (
+        Icons.school_rounded,
+        'Écoles actives',
+        (totals['active_schools'] ?? 0).toString() +
+            '/' +
+            (totals['schools'] ?? 0).toString(),
+      ),
+      (
+        Icons.manage_accounts_rounded,
+        'Gestionnaires',
+        (totals['managers'] ?? 0).toString(),
+      ),
+      (
+        Icons.devices_other_rounded,
+        'Appareils',
+        (totals['devices'] ?? 0).toString(),
+      ),
+      (
+        Icons.wifi_tethering_rounded,
+        'En ligne',
+        (totals['online_devices'] ?? 0).toString(),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cols = constraints.maxWidth >= 850
+            ? 4
+            : constraints.maxWidth >= 500
+                ? 2
+                : 1;
+        final width = (constraints.maxWidth - (cols - 1) * 10) / cols;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final item in items)
+              SizedBox(
+                width: width,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        CircleAvatar(child: Icon(item.$1)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.$3,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w900),
+                              ),
+                              Text(item.$2),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CreateSchoolCard extends StatefulWidget {
+  const _CreateSchoolCard({required this.onCreated});
+  final Future<void> Function() onCreated;
+
+  @override
+  State<_CreateSchoolCard> createState() => _CreateSchoolCardState();
+}
+
+class _CreateSchoolCardState extends State<_CreateSchoolCard> {
+  final _name = TextEditingController();
+  final _code = TextEditingController();
+  final _adminEmail = TextEditingController();
+  final _adminName = TextEditingController();
+  final _adminPassword = TextEditingController();
+  final _managerUsername = TextEditingController();
+  final _managerName = TextEditingController();
+  final _managerPassword = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _code.dispose();
+    _adminEmail.dispose();
+    _adminName.dispose();
+    _adminPassword.dispose();
+    _managerUsername.dispose();
+    _managerName.dispose();
+    _managerPassword.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await SuperAdminService.instance.createSchool(
+        name: _name.text,
+        code: _code.text,
+        administratorEmail: _adminEmail.text,
+        administratorName: _adminName.text,
+        administratorPassword: _adminPassword.text,
+        managerUsername: _managerUsername.text,
+        managerName: _managerName.text,
+        managerPassword: _managerPassword.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('École, administrateur et gestionnaire créés.'),
+        ),
+      );
+      await widget.onCreated();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Bad state: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Nouvel établissement',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            _field(_name, 'Nom de l’école', Icons.school_outlined),
+            const SizedBox(height: 10),
+            _field(_code, 'Code souhaité (facultatif)', Icons.tag_rounded),
+            const SizedBox(height: 16),
+            const Text(
+              'Administrateur',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            _field(_adminName, 'Nom administrateur', Icons.person_outline),
+            const SizedBox(height: 10),
+            _field(
+              _adminEmail,
+              'E-mail administrateur',
+              Icons.email_outlined,
+              keyboard: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 10),
+            _field(
+              _adminPassword,
+              'Mot de passe temporaire (8 caractères minimum)',
+              Icons.password_rounded,
+              obscure: true,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Gestionnaire',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            _field(_managerName, 'Nom gestionnaire', Icons.badge_outlined),
+            const SizedBox(height: 10),
+            _field(
+              _managerUsername,
+              'Identifiant gestionnaire',
+              Icons.account_circle_outlined,
+            ),
+            const SizedBox(height: 10),
+            _field(
+              _managerPassword,
+              'Mot de passe temporaire (8 caractères minimum)',
+              Icons.password_outlined,
+              obscure: true,
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              _ErrorBanner(text: _error!),
+            ],
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _busy ? null : _create,
+              icon: const Icon(Icons.add_business_rounded),
+              label: Text(
+                _busy ? 'Création…' : 'Créer l’école et les accès',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    bool obscure = false,
+    TextInputType? keyboard,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: obscure,
+      keyboardType: keyboard,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+      ),
+    );
+  }
+}
+
+class _SchoolCard extends StatefulWidget {
+  const _SchoolCard({required this.school, required this.onToggle});
+  final Map<String, dynamic> school;
+  final Future<void> Function(bool active) onToggle;
+
+  @override
+  State<_SchoolCard> createState() => _SchoolCardState();
+}
+
+class _SchoolCardState extends State<_SchoolCard> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final school = widget.school;
+    final active = school['active'] == true;
+    final admin = _asMap(school['admin']);
+    final managers = _asList(school['managers']);
+    final sync = _asMap(school['sync']);
+    final online = (school['online_device_count'] as num?)?.toInt() ?? 0;
+    final devices = (school['device_count'] as num?)?.toInt() ?? 0;
+    final revision = (sync['revision'] as num?)?.toInt() ?? 0;
+    final size = (sync['size_bytes'] as num?)?.toInt();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(active ? Icons.school_rounded : Icons.pause_circle_outline),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        school['name']?.toString() ?? 'École',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      Text(
+                        (school['code'] ?? '—').toString() +
+                            ' · ' +
+                            (active ? 'Actif' : 'Suspendu'),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.tonal(
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          final next = !active;
+                          setState(() => _busy = true);
+                          try {
+                            await widget.onToggle(next);
+                          } finally {
+                            if (mounted) setState(() => _busy = false);
+                          }
+                        },
+                  child: Text(active ? 'Suspendre' : 'Réactiver'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  label: Text(
+                    'Admin : ' + (admin['display_name'] ?? '—').toString(),
+                  ),
+                ),
+                Chip(label: Text(managers.length.toString() + ' gestionnaire(s)')),
+                Chip(label: Text(online.toString() + '/' + devices.toString() + ' en ligne')),
+                Chip(label: Text('Révision ' + revision.toString())),
+                if (size != null) Chip(label: Text(_bytes(size))),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Dernier appareil : ' + _date(school['last_seen_at']),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              'Dernière synchro : ' + _date(sync['updated_at']),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return const {};
+  }
+
+  static List<Map<String, dynamic>> _asList(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  static String _bytes(int value) {
+    if (value >= 1024 * 1024) {
+      return (value / (1024 * 1024)).toStringAsFixed(1) + ' Mo';
+    }
+    if (value >= 1024) return (value / 1024).toStringAsFixed(0) + ' Ko';
+    return value.toString() + ' o';
+  }
+
+  static String _date(dynamic value) {
+    final d = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+    if (d == null) return '—';
+    String two(int v) => v.toString().padLeft(2, '0');
+    return two(d.day) +
+        '/' +
+        two(d.month) +
+        ' ' +
+        two(d.hour) +
+        ':' +
+        two(d.minute);
+  }
+}
+
+class _ActivityTile extends StatelessWidget {
+  const _ActivityTile({required this.event});
+  final Map<String, dynamic> event;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = event['event_type']?.toString() ?? 'event';
+    final module = event['module']?.toString() ?? 'system';
+    final message = event['message']?.toString();
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.bolt_outlined),
+      title: Text(
+        message == null || message.isEmpty ? type : message,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(module + ' · ' + _date(event['created_at'])),
+    );
+  }
+
+  static String _date(dynamic value) {
+    final d = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+    if (d == null) return '—';
+    String two(int v) => v.toString().padLeft(2, '0');
+    return two(d.day) +
+        '/' +
+        two(d.month) +
+        ' ' +
+        two(d.hour) +
+        ':' +
+        two(d.minute) +
+        ':' +
+        two(d.second);
+  }
+}
+
+class _TitleRow extends StatelessWidget {
+  const _TitleRow({required this.title, required this.subtitle});
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w900),
+          ),
+        ),
+        Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+}
+
+class _LiveDot extends StatelessWidget {
+  const _LiveDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 11,
+      height: 11,
+      decoration: const BoxDecoration(
+        color: Colors.green,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(text),
+    );
+  }
+}
+
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(text),
+      ),
+    );
+  }
+}
