@@ -5,6 +5,7 @@ import '../../core/layout/responsive_layout.dart';
 
 import '../../core/platform/download_service.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/hr.dart';
 import '../../services/payroll_pdf_service.dart';
@@ -174,13 +175,14 @@ class _PayrollScreenState extends ConsumerState<PayrollScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: employeeId,
                     decoration: const InputDecoration(labelText: 'Employé'),
                     items: employees
                         .map(
                           (employee) => DropdownMenuItem(
                             value: employee.id,
-                            child: Text(employee.fullName),
+                            child: Text(employee.fullName, maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                         )
                         .toList(),
@@ -198,13 +200,14 @@ class _PayrollScreenState extends ConsumerState<PayrollScreen> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: methodName,
                     decoration: const InputDecoration(labelText: 'Moyen de paiement'),
                     items: methods
                         .map(
                           (method) => DropdownMenuItem(
                             value: method['name'].toString(),
-                            child: Text(method['name'].toString()),
+                            child: Text(method['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                         )
                         .toList(),
@@ -223,6 +226,7 @@ class _PayrollScreenState extends ConsumerState<PayrollScreen> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     key: ValueKey('$methodName-$accountId'),
                     initialValue: accountId,
                     decoration: const InputDecoration(labelText: 'Caisse / compte'),
@@ -230,7 +234,7 @@ class _PayrollScreenState extends ConsumerState<PayrollScreen> {
                         .map(
                           (account) => DropdownMenuItem(
                             value: account['id'].toString(),
-                            child: Text(account['name'].toString()),
+                            child: Text(account['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                         )
                         .toList(),
@@ -302,18 +306,21 @@ class _PayrollScreenState extends ConsumerState<PayrollScreen> {
       appBar: AppBar(
         title: const Text('Paie'),
         actions: [
-          IconButton(
-            tooltip: 'Avance sur salaire',
-            icon: const Icon(Icons.payments_outlined),
-            onPressed: _grantAdvance,
-          ),
+          if (!OperatorSession.isReadOnly)
+            IconButton(
+              tooltip: 'Avance sur salaire',
+              icon: const Icon(Icons.payments_outlined),
+              onPressed: _grantAdvance,
+            ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createPeriod,
-        icon: const Icon(Icons.calculate_outlined),
-        label: const Text('Calculer une paie'),
-      ),
+      floatingActionButton: OperatorSession.isReadOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _createPeriod,
+              icon: const Icon(Icons.calculate_outlined),
+              label: const Text('Calculer une paie'),
+            ),
       body: FutureBuilder<List<PayrollPeriodItem>>(
         key: ValueKey(_refresh),
         future: ref.read(hrRepositoryProvider).payrollPeriods(),
@@ -428,13 +435,14 @@ class _PayrollPeriodScreenState extends ConsumerState<PayrollPeriodScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                    isExpanded: true,
                   initialValue: methodName,
                   decoration: const InputDecoration(labelText: 'Moyen de paiement'),
                   items: methods
                       .map(
                         (method) => DropdownMenuItem(
                           value: method['name'].toString(),
-                          child: Text(method['name'].toString()),
+                          child: Text(method['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -453,6 +461,7 @@ class _PayrollPeriodScreenState extends ConsumerState<PayrollPeriodScreen> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
+                    isExpanded: true,
                   key: ValueKey('$methodName-$accountId'),
                   initialValue: accountId,
                   decoration: const InputDecoration(labelText: 'Compte / caisse'),
@@ -460,7 +469,7 @@ class _PayrollPeriodScreenState extends ConsumerState<PayrollPeriodScreen> {
                       .map(
                         (account) => DropdownMenuItem(
                           value: account['id'].toString(),
-                          child: Text(account['name'].toString()),
+                          child: Text(account['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -566,7 +575,7 @@ class _PayrollPeriodScreenState extends ConsumerState<PayrollPeriodScreen> {
           appBar: AppBar(
             title: Text(widget.period.label),
             actions: [
-              if (hasDraft)
+              if (hasDraft && !OperatorSession.isReadOnly)
                 TextButton.icon(
                   onPressed: _validatePeriod,
                   icon: const Icon(Icons.verified_outlined),
@@ -605,7 +614,7 @@ class _PayrollPeriodScreenState extends ConsumerState<PayrollPeriodScreen> {
                                 }
                               },
                               itemBuilder: (_) => [
-                                if (entry.status == 'validated')
+                                if (entry.status == 'validated' && !OperatorSession.isReadOnly)
                                   const PopupMenuItem(
                                     value: 'pay',
                                     child: Text('Payer'),
