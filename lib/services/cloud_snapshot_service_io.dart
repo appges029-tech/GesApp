@@ -149,9 +149,30 @@ class CloudSnapshotService {
       final remoteRevision = (metadata?['revision'] as num?)?.toInt() ?? 0;
       final remotePath = metadata?['current_path']?.toString();
       final remoteChecksum = metadata?['checksum_sha256']?.toString();
+
+      // L'administrateur est strictement lecteur du cloud : la version distante
+      // est donc la source de vérité. Une migration locale peut incrémenter
+      // local_revision sans représenter une modification métier à publier ; ce
+      // bruit technique ne doit jamais bloquer la restauration d'un snapshot
+      // cloud plus récent pour un administrateur.
+      if (OperatorSession.isAdmin) {
+        if (remotePath != null && remotePath.isNotEmpty && remoteRevision > knownRemote) {
+          await _downloadAndRestore(
+            path: remotePath,
+            backupSecret: secret,
+            remoteRevision: remoteRevision,
+            expectedChecksum: remoteChecksum,
+          );
+        } else {
+          status.value = CloudSyncStatus(state: 'up_to_date', lastSyncedAt: DateTime.now());
+        }
+        return;
+      }
+
       final localDirty = localRevision != lastUploaded;
 
-      // Une autre machine a publié une version plus récente.
+      // Pour un gestionnaire, protéger les changements locaux reste prioritaire :
+      // une version cloud concurrente déclenche un conflit explicite.
       if (remoteRevision > knownRemote && remotePath != null && remotePath.isNotEmpty) {
         if (!localDirty) {
           await _downloadAndRestore(
@@ -170,17 +191,6 @@ class CloudSnapshotService {
           state: 'conflict',
           message: 'Conflit détecté : aucune donnée n’a été écrasée. Synchronisez d’abord l’appareil le plus récent.',
         );
-        return;
-      }
-
-      // L'administrateur est strictement lecteur : il peut recevoir un
-      // snapshot mais n'en publie jamais.
-      if (OperatorSession.isAdmin) {
-        if (remotePath != null && remotePath.isNotEmpty && remoteRevision > knownRemote) {
-          await _downloadAndRestore(path: remotePath, backupSecret: secret, remoteRevision: remoteRevision, expectedChecksum: remoteChecksum);
-        } else {
-          status.value = CloudSyncStatus(state: 'up_to_date', lastSyncedAt: DateTime.now());
-        }
         return;
       }
 
