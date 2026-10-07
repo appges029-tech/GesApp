@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
@@ -36,7 +37,8 @@ class _HrScreenState extends ConsumerState<HrScreen> {
       subtitle: 'Personnel, présence, congés, contrats et paie',
       actions: [
         WindowsCommandButton(icon: Icons.refresh, label: 'Actualiser', onPressed: () => setState(() => _refresh++)),
-        WindowsCommandButton(icon: Icons.settings_outlined, label: 'Configuration', onPressed: () => _open(const HrConfigurationScreen())),
+        if (!OperatorSession.isReadOnly)
+          WindowsCommandButton(icon: Icons.settings_outlined, label: 'Configuration', onPressed: () => _open(const HrConfigurationScreen())),
       ],
       body: FutureBuilder<HrSummary>(
         key: ValueKey(_refresh),
@@ -117,7 +119,8 @@ class _HrScreenState extends ConsumerState<HrScreen> {
             WindowsModuleCard(icon: Icons.event_available_outlined, title: 'Congés & permissions', subtitle: 'Demandes, validation, refus et calendrier des absences.', onTap: () => _open(const LeaveScreen())),
             WindowsModuleCard(icon: Icons.account_balance_wallet_outlined, title: 'Paie', subtitle: 'Calcul, retenues, avances, validation, paiement et bulletin PDF.', onTap: () => _open(const PayrollScreen())),
             WindowsModuleCard(icon: Icons.analytics_outlined, title: 'Rapports RH', subtitle: 'Effectifs, masse salariale, présence, congés et contrats.', onTap: () => _open(const HrReportsScreen())),
-            WindowsModuleCard(icon: Icons.tune_outlined, title: 'Configuration RH', subtitle: 'Services, postes et éléments de salaire.', onTap: () => _open(const HrConfigurationScreen())),
+            if (!OperatorSession.isReadOnly)
+              WindowsModuleCard(icon: Icons.tune_outlined, title: 'Configuration RH', subtitle: 'Services, postes et éléments de salaire.', onTap: () => _open(const HrConfigurationScreen())),
           ]);
           return RefreshIndicator(
             onRefresh: () async => setState(() => _refresh++),
