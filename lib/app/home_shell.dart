@@ -189,10 +189,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final entries = _entries;
     if (_index >= entries.length) _index = 0;
     final pages = entries.map((e) => e.page).toList(growable: false);
-    final destinations = entries
-        .map((e) => NavigationDestination(icon: Icon(e.icon), selectedIcon: Icon(e.selectedIcon), label: e.label))
-        .toList(growable: false);
-
     return LayoutBuilder(builder: (context, constraints) {
       final desktop = constraints.maxWidth >= AppBreakpoints.tablet;
       if (!desktop) {
@@ -335,7 +331,9 @@ class _WindowsNavigationPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final width = expanded ? WindowsUi.expandedPaneWidth : WindowsUi.compactPaneWidth;
+    final width =
+        expanded ? WindowsUi.expandedPaneWidth : WindowsUi.compactPaneWidth;
+
     return SafeArea(
       child: SizedBox(
         width: width,
@@ -347,67 +345,97 @@ class _WindowsNavigationPane extends StatelessWidget {
             curve: Curves.easeOutCubic,
             width: width,
             child: Column(
-          children: [
-            SizedBox(
-              height: 72,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 10),
-                child: Row(
-                  mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.school_rounded, color: Colors.white, size: 21),
+              children: [
+                SizedBox(
+                  height: 72,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: expanded ? 14 : 10,
                     ),
-                    if (expanded) ...[
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('GesApp', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                            Text('Gestion scolaire', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
-                          ],
+                    child: Row(
+                      mainAxisAlignment: expanded
+                          ? MainAxisAlignment.start
+                          : MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.school_rounded,
+                            color: Colors.white,
+                            size: 21,
+                          ),
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: .75)),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                children: [
-                  for (var i = 0; i < entries.length - 1; i++)
-                    _WindowsNavItem(
-                      entry: entries[i],
-                      expanded: expanded,
-                      selected: selectedIndex == i,
-                      onTap: () => onSelected(i),
+                        if (expanded) ...[
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'GesApp',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                Text(
+                                  'Gestion scolaire',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                ],
-              ),
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  color: scheme.outlineVariant.withValues(alpha: .75),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    children: [
+                      for (var i = 0; i < entries.length - 1; i++)
+                        _WindowsNavItem(
+                          entry: entries[i],
+                          expanded: expanded,
+                          selected: selectedIndex == i,
+                          onTap: () => onSelected(i),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                  child: _WindowsNavItem(
+                    entry: entries.last,
+                    expanded: expanded,
+                    selected: selectedIndex == entries.length - 1,
+                    onTap: () => onSelected(entries.length - 1),
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
-              child: _WindowsNavItem(
-                entry: entries.last,
-                expanded: expanded,
-                selected: selectedIndex == entries.length - 1,
-                onTap: () => onSelected(entries.length - 1),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
-    ),
-  ),
     );
   }
 }
