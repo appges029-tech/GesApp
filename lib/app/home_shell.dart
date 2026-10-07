@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/layout/responsive_layout.dart';
@@ -14,6 +16,7 @@ import '../features/settings/settings_screen.dart';
 import '../features/students/students_screen.dart';
 import '../services/cloud_snapshot_service.dart';
 import '../services/tenant_cloud_service.dart';
+import '../services/platform_telemetry_service.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -38,18 +41,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     CloudSnapshotService.instance.start();
+    PlatformTelemetryService.instance.start();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     CloudSnapshotService.instance.stop();
+    PlatformTelemetryService.instance.stop();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(PlatformTelemetryService.instance.record(
+        eventType: 'app_resumed',
+        module: 'application',
+        message: 'GesApp revenu au premier plan',
+      ));
+      unawaited(PlatformTelemetryService.instance.heartbeat());
       CloudSnapshotService.instance.synchronize();
     } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       // Dans le flux multitenant courant, HomeShell est monté directement par
@@ -61,6 +72,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   List<_NavEntry> get _entries => _allEntries;
+
+  void _select(int value) {
+    if (value < 0 || value >= _entries.length) return;
+    setState(() => _index = value);
+    unawaited(PlatformTelemetryService.instance.moduleOpened(_entries[value].label));
+  }
 
   static const _allEntries = [
     _NavEntry(Icons.space_dashboard_outlined, Icons.space_dashboard_rounded, 'Accueil', DashboardScreen()),
@@ -121,7 +138,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ),
       ),
     );
-    if (selected != null && mounted) setState(() => _index = selected);
+    if (selected != null && mounted) _select(selected);
   }
 
   Widget _pageContent(List<Widget> pages) {
@@ -194,7 +211,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 if (value == 4) {
                   _showMore(entries);
                 } else {
-                  setState(() => _index = _mobileIndexes[value]);
+                  _select(_mobileIndexes[value]);
                 }
               },
               destinations: mobileDestinations,
@@ -212,7 +229,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 expanded: expanded,
                 entries: entries,
                 selectedIndex: _index,
-                onSelected: (value) => setState(() => _index = value),
+                onSelected: _select,
               ),
               Expanded(child: _pageContent(pages)),
             ],
@@ -255,7 +272,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   child: NavigationRail(
                     extended: extended,
                     selectedIndex: _index,
-                    onDestinationSelected: (value) => setState(() => _index = value),
+                    onDestinationSelected: _select,
                     minWidth: 64,
                     minExtendedWidth: 215,
                     groupAlignment: -1,

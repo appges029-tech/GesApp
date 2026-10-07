@@ -16,6 +16,7 @@ import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
 import '../data/repositories/tenant_repository.dart';
 import 'json_data_service.dart';
+import 'platform_telemetry_service.dart';
 
 class CloudSyncStatus {
   const CloudSyncStatus({required this.state, this.message, this.lastSyncedAt});
@@ -88,6 +89,11 @@ class CloudSnapshotService {
       final message = _syncErrorMessage(e);
       await _tenant.updateSyncState(status: 'error', lastError: message);
       status.value = CloudSyncStatus(state: 'error', message: message);
+      unawaited(PlatformTelemetryService.instance.record(
+        eventType: 'sync_error',
+        module: 'synchronisation',
+        message: message,
+      ));
     } finally {
       _running = false;
     }
@@ -118,6 +124,11 @@ class CloudSnapshotService {
       final message = _syncErrorMessage(e);
       await _tenant.updateSyncState(status: 'error', lastError: message);
       status.value = CloudSyncStatus(state: 'error', message: message);
+      unawaited(PlatformTelemetryService.instance.record(
+        eventType: 'sync_error',
+        module: 'synchronisation',
+        message: message,
+      ));
       return;
     } finally {
       _running = false;
@@ -191,6 +202,12 @@ class CloudSnapshotService {
           state: 'conflict',
           message: 'Conflit détecté : aucune donnée n’a été écrasée. Synchronisez d’abord l’appareil le plus récent.',
         );
+        unawaited(PlatformTelemetryService.instance.record(
+          eventType: 'sync_conflict',
+          module: 'synchronisation',
+          message: 'Conflit local/cloud détecté',
+          metadata: {'remote_revision': remoteRevision},
+        ));
         return;
       }
 
@@ -288,6 +305,12 @@ class CloudSnapshotService {
           lastSyncedAt: now,
         );
         status.value = CloudSyncStatus(state: 'up_to_date', lastSyncedAt: now);
+        unawaited(PlatformTelemetryService.instance.record(
+          eventType: 'sync_uploaded',
+          module: 'synchronisation',
+          message: 'Nouvelle révision publiée vers le cloud',
+          metadata: {'revision': nextRemote, 'size_bytes': encrypted.length},
+        ));
       } finally {
         if (await exported.file.exists()) await exported.file.delete();
       }
@@ -295,6 +318,11 @@ class CloudSnapshotService {
       final message = _syncErrorMessage(e);
       await _tenant.updateSyncState(status: 'error', lastError: message);
       status.value = CloudSyncStatus(state: 'error', message: message);
+      unawaited(PlatformTelemetryService.instance.record(
+        eventType: 'sync_error',
+        module: 'synchronisation',
+        message: message,
+      ));
     } finally {
       _running = false;
     }
@@ -386,6 +414,12 @@ class CloudSnapshotService {
         lastSyncedAt: DateTime.now(),
       );
       status.value = CloudSyncStatus(state: 'up_to_date', lastSyncedAt: DateTime.now());
+      unawaited(PlatformTelemetryService.instance.record(
+        eventType: 'sync_downloaded',
+        module: 'synchronisation',
+        message: 'Révision cloud restaurée sur l’appareil',
+        metadata: {'revision': remoteRevision, 'size_bytes': encrypted.length},
+      ));
     } finally {
       if (await source.exists()) await source.delete();
     }

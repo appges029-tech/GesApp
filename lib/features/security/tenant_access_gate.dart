@@ -11,6 +11,7 @@ import '../../services/tenant_cloud_service.dart';
 import '../../services/cloud_snapshot_service.dart';
 import '../../app/home_shell.dart';
 import '../../app/app_lock_gate.dart';
+import 'super_admin_console_screen.dart';
 
 class TenantAccessGate extends StatefulWidget {
   const TenantAccessGate({super.key});
@@ -388,6 +389,18 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
                         const SizedBox(height: 14),
                         Text(errorText, style: TextStyle(color: Theme.of(context).colorScheme.error), textAlign: TextAlign.center),
                       ],
+                      const SizedBox(height: 18),
+                      OutlinedButton.icon(
+                        onPressed: _busy
+                            ? null
+                            : () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const SuperAdminConsoleScreen(),
+                                  ),
+                                ),
+                        icon: const Icon(Icons.admin_panel_settings_outlined),
+                        label: const Text('Accès Super Admin'),
+                      ),
                     ],
                   ),
                 ),
