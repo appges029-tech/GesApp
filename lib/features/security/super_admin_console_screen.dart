@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../services/super_admin_service.dart';
 
@@ -106,7 +107,8 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
           padding: const EdgeInsets.all(20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
-            child: Card(
+            child: GlassCard(
+              padding: EdgeInsets.zero,
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(
@@ -212,7 +214,8 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Card(
+            GlassCard(
+              padding: EdgeInsets.zero,
               child: ListTile(
                 leading: const Icon(Icons.monitor_heart_rounded),
                 title: const Text(
@@ -281,7 +284,8 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
                 text: 'Aucune activité centralisée pour le moment.',
               )
             else
-              Card(
+              GlassCard(
+                padding: EdgeInsets.zero,
                 child: Column(
                   children: [
                     for (var i = 0; i < events.length && i < 30; i++) ...[
@@ -363,7 +367,8 @@ class _Metrics extends StatelessWidget {
             for (final item in items)
               SizedBox(
                 width: width,
-                child: Card(
+                child: GlassCard(
+                  padding: EdgeInsets.zero,
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Row(
@@ -464,7 +469,8 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -583,7 +589,8 @@ class _SchoolCardState extends State<_SchoolCard> {
     final revision = (sync['revision'] as num?)?.toInt() ?? 0;
     final size = (sync['size_bytes'] as num?)?.toInt();
 
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(15),
         child: Column(
@@ -801,7 +808,8 @@ class _EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         leading: Icon(icon),
         title: Text(text),

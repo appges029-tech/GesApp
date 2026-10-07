@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'windows_ui.dart';
 
@@ -29,7 +30,11 @@ class WindowsPageScaffold extends StatelessWidget {
     if (!WindowsUi.isDesktop(context)) {
       return Scaffold(
         backgroundColor: backgroundColor,
-        appBar: AppBar(title: Text(title), actions: actions),
+        appBar: GlassAppBar(
+          title: Text(title),
+          actions: actions,
+          centerTitle: false,
+        ),
         floatingActionButton: floatingActionButton,
         body: body,
       );
@@ -37,53 +42,70 @@ class WindowsPageScaffold extends StatelessWidget {
 
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor:
+          backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              constraints: const BoxConstraints(minHeight: 74),
-              padding: const EdgeInsets.fromLTRB(28, 16, 20, 14),
-              decoration: BoxDecoration(
-                color: scheme.surface,
-                border: Border(bottom: BorderSide(color: scheme.outlineVariant.withValues(alpha: .72))),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
+            GlassCard(
+              padding: EdgeInsets.zero,
+              quality: GlassQuality.standard,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 74),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 16, 20, 14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ],
                         ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                      if (actions.isNotEmpty) ...[
+                        const SizedBox(width: 16),
+                        Flexible(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.end,
+                            children: actions,
                           ),
-                        ],
+                        ),
                       ],
-                    ),
+                    ],
                   ),
-                  if (actions.isNotEmpty) ...[
-                    const SizedBox(width: 16),
-                    Flexible(
-                      child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: actions),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
+            const SizedBox(height: 8),
             Expanded(
               child: Align(
                 alignment: Alignment.topCenter,
@@ -120,11 +142,24 @@ class WindowsCommandButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!WindowsUi.isDesktop(context)) {
-      return IconButton(tooltip: label, onPressed: onPressed, icon: Icon(icon));
+      return GlassIconButton(
+        semanticLabel: label,
+        onPressed: onPressed,
+        icon: Icon(icon),
+        useOwnLayer: true,
+      );
     }
     if (primary) {
-      return FilledButton.icon(onPressed: onPressed, icon: Icon(icon, size: 18), label: Text(label));
+      return FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      );
     }
-    return OutlinedButton.icon(onPressed: onPressed, icon: Icon(icon, size: 18), label: Text(label));
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
   }
 }

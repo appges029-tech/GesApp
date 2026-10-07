@@ -1,7 +1,7 @@
 name: gesapp
 description: Application de gestion scolaire offline-first pour les établissements congolais.
 publish_to: 'none'
-version: 2.2.2+43
+version: 2.2.3+44
 environment:
   sdk: '>=3.5.0 <4.0.0'
 
@@ -29,6 +29,7 @@ dependencies:
   workmanager: ^0.9.0+2
   excel: ^4.0.6
   csv: ^6.0.0
+  liquid_glass_widgets: ^1.10.0
 
 dev_dependencies:
   flutter_test:

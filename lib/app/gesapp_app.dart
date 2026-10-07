@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_controller.dart';
+import '../core/theme/liquid_glass_backdrop.dart';
 import '../features/security/tenant_access_gate.dart';
 import 'app_navigation.dart';
 
@@ -22,6 +24,15 @@ class GesApp extends StatelessWidget {
         theme: windows ? AppTheme.windowsLight : AppTheme.light,
         darkTheme: windows ? AppTheme.windowsDark : AppTheme.dark,
         themeMode: controller.mode,
+        builder: (context, child) => GlassPage(
+          background: const LiquidGlassBackdrop(),
+          enableBackgroundSampling: true,
+          edgeToEdge: true,
+          statusBarStyle: GlassStatusBarStyle.auto,
+          child: GlassNavigationShell(
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
         home: const TenantAccessGate(),
       ),
     );
