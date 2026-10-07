@@ -700,6 +700,7 @@ class _ActivityTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final type = event['event_type']?.toString() ?? 'event';
     final module = event['module']?.toString() ?? 'system';
+    final school = event['organization_name']?.toString();
     final message = event['message']?.toString();
     return ListTile(
       dense: true,
@@ -709,7 +710,13 @@ class _ActivityTile extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(module + ' · ' + _date(event['created_at'])),
+      subtitle: Text(
+        (school == null || school.isEmpty ? 'Plateforme' : school) +
+            ' · ' +
+            module +
+            ' · ' +
+            _date(event['created_at']),
+      ),
     );
   }
 
