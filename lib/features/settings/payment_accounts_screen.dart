@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/repositories/settings_repository.dart';
 
@@ -63,6 +64,7 @@ class _PaymentAccountsScreenState extends ConsumerState<PaymentAccountsScreen> {
                 TextField(controller: name, decoration: const InputDecoration(labelText: 'Nom *')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: type,
                   decoration: const InputDecoration(labelText: 'Type de compte compatible'),
                   items: const [
@@ -130,6 +132,7 @@ class _PaymentAccountsScreenState extends ConsumerState<PaymentAccountsScreen> {
                 TextField(controller: name, decoration: const InputDecoration(labelText: 'Nom *')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: type,
                   decoration: const InputDecoration(labelText: 'Type'),
                   items: const [
@@ -195,7 +198,7 @@ class _PaymentAccountsScreenState extends ConsumerState<PaymentAccountsScreen> {
                   Row(
                     children: [
                       Expanded(child: Text('Moyens de paiement', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
-                      FilledButton.tonalIcon(onPressed: () => _editMethod(), icon: const Icon(Icons.add), label: const Text('Ajouter')),
+                      if (!OperatorSession.isReadOnly) FilledButton.tonalIcon(onPressed: () => _editMethod(), icon: const Icon(Icons.add), label: const Text('Ajouter')),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -205,8 +208,8 @@ class _PaymentAccountsScreenState extends ConsumerState<PaymentAccountsScreen> {
                         leading: Icon(m.active ? Icons.payments_outlined : Icons.block_outlined),
                         title: Text(m.name),
                         subtitle: Text('${_typeLabel(m.accountType)}${m.requiresReference ? ' · référence obligatoire' : ''}${m.active ? '' : ' · désactivé'}'),
-                        trailing: const Icon(Icons.edit_outlined),
-                        onTap: () => _editMethod(m),
+                        trailing: OperatorSession.isReadOnly ? null : const Icon(Icons.edit_outlined),
+                        onTap: OperatorSession.isReadOnly ? null : () => _editMethod(m),
                       ),
                     ),
                   ),
@@ -214,7 +217,7 @@ class _PaymentAccountsScreenState extends ConsumerState<PaymentAccountsScreen> {
                   Row(
                     children: [
                       Expanded(child: Text('Caisses & comptes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
-                      FilledButton.tonalIcon(onPressed: () => _editAccount(), icon: const Icon(Icons.add), label: const Text('Ajouter')),
+                      if (!OperatorSession.isReadOnly) FilledButton.tonalIcon(onPressed: () => _editAccount(), icon: const Icon(Icons.add), label: const Text('Ajouter')),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -224,8 +227,8 @@ class _PaymentAccountsScreenState extends ConsumerState<PaymentAccountsScreen> {
                         leading: Icon(a.type == 'cash' ? Icons.point_of_sale_outlined : a.type == 'mobile' ? Icons.phone_android_outlined : Icons.account_balance_outlined),
                         title: Text(a.name),
                         subtitle: Text('${_typeLabel(a.type)} · solde initial ${formatXaf(a.openingBalance)}${a.active ? '' : ' · désactivé'}'),
-                        trailing: const Icon(Icons.edit_outlined),
-                        onTap: () => _editAccount(a),
+                        trailing: OperatorSession.isReadOnly ? null : const Icon(Icons.edit_outlined),
+                        onTap: OperatorSession.isReadOnly ? null : () => _editAccount(a),
                       ),
                     ),
                   ),
