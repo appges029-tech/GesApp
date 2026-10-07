@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/family.dart';
 import '../finance/payment_form_screen.dart';
