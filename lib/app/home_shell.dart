@@ -266,14 +266,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       return Scaffold(
         body: Row(children: [
           SafeArea(
-            child: Container(
+            child: SizedBox(
               width: extended ? 250 : 88,
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [BoxShadow(color: AppColors.navy.withValues(alpha: .06), blurRadius: 24, offset: const Offset(6, 0))],
-              ),
-              child: Column(children: [
+              child: GlassCard(
+                padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+                quality: GlassQuality.standard,
+                child: Column(children: [
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: extended ? 10 : 4, vertical: 8),
                   child: Row(mainAxisAlignment: extended ? MainAxisAlignment.start : MainAxisAlignment.center, children: [
@@ -307,7 +305,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               ]),
             ),
           ),
-          VerticalDivider(width: 1, color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: Align(
               alignment: Alignment.topCenter,
@@ -338,15 +337,16 @@ class _WindowsNavigationPane extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final width = expanded ? WindowsUi.expandedPaneWidth : WindowsUi.compactPaneWidth;
     return SafeArea(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+      child: SizedBox(
         width: width,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          border: Border(right: BorderSide(color: scheme.outlineVariant.withValues(alpha: .8))),
-        ),
-        child: Column(
+        child: GlassCard(
+          padding: EdgeInsets.zero,
+          quality: GlassQuality.standard,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            width: width,
+            child: Column(
           children: [
             SizedBox(
               height: 72,
@@ -406,6 +406,8 @@ class _WindowsNavigationPane extends StatelessWidget {
           ],
         ),
       ),
+    ),
+  ),
     );
   }
 }
