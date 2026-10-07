@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../data/models/family.dart';
 import 'family_detail_screen.dart';
 
@@ -68,7 +69,9 @@ class FamiliesScreen extends ConsumerWidget {
     final families = ref.watch(familiesProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Familles')),
-      floatingActionButton: FloatingActionButton.extended(onPressed: () => _add(context, ref), icon: const Icon(Icons.add), label: const Text('Famille')),
+      floatingActionButton: OperatorSession.isReadOnly
+          ? null
+          : FloatingActionButton.extended(onPressed: () => _add(context, ref), icon: const Icon(Icons.add), label: const Text('Famille')),
       body: families.when(
         data: (items) => items.isEmpty
             ? const Center(
@@ -91,7 +94,7 @@ class FamiliesScreen extends ConsumerWidget {
                       leading: const CircleAvatar(child: Icon(Icons.family_restroom)),
                       title: Text(f.name, style: const TextStyle(fontWeight: FontWeight.w800)),
                       subtitle: Text('${f.studentCount} élève(s)${f.primaryPhone != null && f.primaryPhone!.isNotEmpty ? ' · ${f.primaryPhone}' : ''}'),
-                      trailing: PopupMenuButton<String>(onSelected:(v){if(v=='open')Navigator.of(context).push(MaterialPageRoute(builder:(_)=>FamilyDetailScreen(family:f)));if(v=='edit')_edit(context,ref,f);},itemBuilder:(_)=>const [PopupMenuItem(value:'open',child:Text('Ouvrir')),PopupMenuItem(value:'edit',child:Text('Modifier'))]),
+                      trailing: PopupMenuButton<String>(onSelected:(v){if(v=='open')Navigator.of(context).push(MaterialPageRoute(builder:(_)=>FamilyDetailScreen(family:f)));if(v=='edit')_edit(context,ref,f);},itemBuilder:(_)=>[const PopupMenuItem(value:'open',child:Text('Ouvrir')),if(!OperatorSession.isReadOnly)const PopupMenuItem(value:'edit',child:Text('Modifier'))]),
                       onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => FamilyDetailScreen(family: f))),
                     ),
                   );
