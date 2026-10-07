@@ -5,6 +5,7 @@ import '../../core/layout/responsive_layout.dart';
 
 import '../../core/platform/download_service.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/stored_image.dart';
 import '../../data/models/hr.dart';
@@ -318,7 +319,8 @@ class _EmployeeDetailScreenState extends ConsumerState<EmployeeDetailScreen> {
           appBar: AppBar(
             title: Text(employee.fullName),
             actions: [
-              IconButton(
+              if (!OperatorSession.isReadOnly)
+                IconButton(
                 icon: const Icon(Icons.edit),
                 tooltip: 'Modifier',
                 onPressed: () async {
@@ -354,7 +356,8 @@ class _EmployeeDetailScreenState extends ConsumerState<EmployeeDetailScreen> {
                             const SizedBox(width: 12),
                           ],
                           Expanded(child: Text(employee.fullName, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900))),
-                          IconButton(tooltip: 'Photo', onPressed: () => _changePhoto(employee), icon: const Icon(Icons.photo_camera_outlined)),
+                          if (!OperatorSession.isReadOnly)
+                            IconButton(tooltip: 'Photo', onPressed: () => _changePhoto(employee), icon: const Icon(Icons.photo_camera_outlined)),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -452,7 +455,7 @@ class _EmployeeDetailScreenState extends ConsumerState<EmployeeDetailScreen> {
                           title: Text(document['document_type'].toString()),
                           subtitle: Text(document['document_number']?.toString() ?? ''),
                           onTap: () => _openDocument(document),
-                          trailing: IconButton(
+                          trailing: OperatorSession.isReadOnly ? null : IconButton(
                             icon: const Icon(Icons.delete_outline),
                             onPressed: () async {
                               final path = document['file_path']?.toString() ?? '';
@@ -529,7 +532,7 @@ class _Section extends StatelessWidget {
             Row(
               children: [
                 Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
-                if (action != null) TextButton.icon(onPressed: onAction, icon: const Icon(Icons.add), label: Text(action!)),
+                if (action != null && !OperatorSession.isReadOnly) TextButton.icon(onPressed: onAction, icon: const Icon(Icons.add), label: Text(action!)),
               ],
             ),
             child,
