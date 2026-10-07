@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'windows_ui.dart';
 
@@ -16,14 +17,10 @@ class WindowsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final content = Container(
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(WindowsUi.isDesktop(context) ? 8 : 16),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .8)),
-      ),
-      child: Padding(padding: padding, child: child),
+    final content = GlassCard(
+      padding: padding,
+      quality: GlassQuality.standard,
+      child: child,
     );
     if (onTap == null) return content;
     return Material(
