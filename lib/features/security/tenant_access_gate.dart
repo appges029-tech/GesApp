@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/cloud/supabase_bootstrap.dart';
@@ -131,7 +132,8 @@ class _TenantLookupErrorScreen extends StatelessWidget {
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
-              child: Card(
+              child: GlassCard(
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -167,7 +169,8 @@ class _SupabaseConfigurationRequired extends StatelessWidget {
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 620),
-              child: Card(
+              child: GlassCard(
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -323,7 +326,8 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 480),
-              child: Card(
+              child: GlassCard(
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -467,7 +471,8 @@ class _MandatoryPasswordChangeScreenState extends State<_MandatoryPasswordChange
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 460),
-              child: Card(
+              child: GlassCard(
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -543,7 +548,8 @@ class _CreateTenantScreenState extends State<_CreateTenantScreen> {
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
-            child: Card(
+            child: GlassCard(
+              padding: EdgeInsets.zero,
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
