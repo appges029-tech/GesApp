@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
@@ -35,7 +36,8 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
       subtitle: 'Biens, affectations, maintenance et inventaires',
       actions: [
         WindowsCommandButton(icon: Icons.refresh, label: 'Actualiser', onPressed: () => setState(() => _refresh++)),
-        WindowsCommandButton(icon: Icons.settings_outlined, label: 'Configuration', onPressed: () => _open(const AssetConfigurationScreen())),
+        if (!OperatorSession.isReadOnly)
+          WindowsCommandButton(icon: Icons.settings_outlined, label: 'Configuration', onPressed: () => _open(const AssetConfigurationScreen())),
       ],
       body: FutureBuilder<AssetSummary>(
         key: ValueKey(_refresh),
@@ -72,7 +74,8 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen> {
                   WindowsModuleCard(icon: Icons.build_circle_outlined, title: 'Maintenance', subtitle: 'Pannes, interventions, coûts, prestataires et prochaines maintenances.', onTap: () => _open(const AssetMaintenanceScreen())),
                   WindowsModuleCard(icon: Icons.fact_check_outlined, title: 'Inventaires physiques', subtitle: 'Campagnes d’inventaire, biens trouvés, déplacés, endommagés ou manquants.', onTap: () => _open(const AssetInventoryScreen())),
                   WindowsModuleCard(icon: Icons.analytics_outlined, title: 'Rapports patrimoniaux', subtitle: 'Valeur et effectifs par catégorie, localisation et statut.', onTap: () => _open(const AssetReportsScreen())),
-                  WindowsModuleCard(icon: Icons.tune_outlined, title: 'Catégories & localisations', subtitle: 'Sites, bâtiments, étages, salles, dépôts et familles de biens.', onTap: () => _open(const AssetConfigurationScreen())),
+                  if (!OperatorSession.isReadOnly)
+                    WindowsModuleCard(icon: Icons.tune_outlined, title: 'Catégories & localisations', subtitle: 'Sites, bâtiments, étages, salles, dépôts et familles de biens.', onTap: () => _open(const AssetConfigurationScreen())),
                 ]),
                 const SizedBox(height: 28),
               ],
