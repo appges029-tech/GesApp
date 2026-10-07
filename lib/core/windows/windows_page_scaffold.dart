@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'windows_ui.dart';
 
@@ -29,7 +30,11 @@ class WindowsPageScaffold extends StatelessWidget {
     if (!WindowsUi.isDesktop(context)) {
       return Scaffold(
         backgroundColor: backgroundColor,
-        appBar: AppBar(title: Text(title), actions: actions),
+        appBar: GlassAppBar(
+          title: Text(title),
+          actions: actions,
+          centerTitle: false,
+        ),
         floatingActionButton: floatingActionButton,
         body: body,
       );
@@ -42,14 +47,14 @@ class WindowsPageScaffold extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              constraints: const BoxConstraints(minHeight: 74),
-              padding: const EdgeInsets.fromLTRB(28, 16, 20, 14),
-              decoration: BoxDecoration(
-                color: scheme.surface,
-                border: Border(bottom: BorderSide(color: scheme.outlineVariant.withValues(alpha: .72))),
-              ),
-              child: Row(
+            GlassCard(
+              padding: EdgeInsets.zero,
+              quality: GlassQuality.standard,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 74),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 16, 20, 14),
+                  child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
@@ -84,6 +89,8 @@ class WindowsPageScaffold extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ),
             Expanded(
               child: Align(
                 alignment: Alignment.topCenter,
@@ -120,7 +127,12 @@ class WindowsCommandButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!WindowsUi.isDesktop(context)) {
-      return IconButton(tooltip: label, onPressed: onPressed, icon: Icon(icon));
+      return GlassIconButton(
+        semanticLabel: label,
+        onPressed: onPressed,
+        icon: Icon(icon),
+        useOwnLayer: true,
+      );
     }
     if (primary) {
       return FilledButton.icon(onPressed: onPressed, icon: Icon(icon, size: 18), label: Text(label));
