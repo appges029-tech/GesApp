@@ -142,47 +142,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (selected != null && mounted) _select(selected);
   }
 
-  Widget _pageContent(List<Widget> pages) {
-    final content = IndexedStack(index: _index, children: pages);
-    if (!OperatorSession.isAdmin) return content;
-    return Column(
-      children: [
-        Material(
-          color: Theme.of(context).colorScheme.secondaryContainer,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-              child: Row(
-                children: [
-                  const Icon(Icons.visibility_outlined, size: 20),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Mode Administrateur — consultation uniquement. Les données métier ne peuvent pas être modifiées.',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () async {
-                      await TenantCloudService.instance.signOut();
-                      // TenantAccessGate écoute onAuthStateChange et remonte
-                      // automatiquement l'écran de connexion. Ne pas forcer
-                      // une seconde navigation pendant la désactivation de
-                      // l'arbre Flutter.
-                    },
-                    icon: const Icon(Icons.logout, size: 18),
-                    label: const Text('Déconnexion'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Expanded(child: content),
-      ],
-    );
-  }
+  Widget _pageContent(List<Widget> pages) =>
+      IndexedStack(index: _index, children: pages);
 
   @override
   Widget build(BuildContext context) {
@@ -194,7 +155,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       if (!desktop) {
         final mobileSelected = _mobileIndexes.indexOf(_index);
         return Scaffold(
-          extendBody: true,
           body: _pageContent(pages),
           bottomNavigationBar: GlassTabBar.bottom(
             selectedIndex: mobileSelected < 0 ? 4 : mobileSelected,
