@@ -38,7 +38,8 @@ abstract final class OperatorSession {
   static bool get isCashier => false;
 
   static bool hasPermission(String permission) {
-    if (!isAuthenticated || !TenantSubscriptionAccess.instance.isAllowed) return false;
+    if (!isAuthenticated ||
+        (organizationId != null && !TenantSubscriptionAccess.instance.isAllowed)) return false;
     if (permission == 'security.manage_users' || permission == 'tenant.manage') {
       return isAdmin;
     }
