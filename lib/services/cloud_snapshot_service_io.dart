@@ -14,6 +14,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/cloud/supabase_bootstrap.dart';
 import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
+import '../core/session/tenant_subscription_access.dart';
 import '../data/repositories/tenant_repository.dart';
 import 'json_data_service.dart';
 import 'platform_telemetry_service.dart';
@@ -56,6 +57,8 @@ class CloudSnapshotService {
   }
 
   Future<void> resolveConflictUsingCloud() async {
+    if (OperatorSession.organizationId != null &&
+        !TenantSubscriptionAccess.instance.isAllowed) return;
     if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
     final orgId = OperatorSession.organizationId;
     if (orgId == null) return;
@@ -100,6 +103,8 @@ class CloudSnapshotService {
   }
 
   Future<void> resolveConflictKeepingLocal() async {
+    if (OperatorSession.organizationId != null &&
+        !TenantSubscriptionAccess.instance.isAllowed) return;
     if (!OperatorSession.isManager) {
       status.value = const CloudSyncStatus(
         state: 'error',
@@ -141,6 +146,14 @@ class CloudSnapshotService {
   }
 
   Future<void> synchronize({bool force = false}) async {
+    if (OperatorSession.organizationId != null &&
+        !TenantSubscriptionAccess.instance.isAllowed) {
+      status.value = const CloudSyncStatus(
+        state: 'blocked',
+        message: 'Synchronisation bloquée : abonnement expiré.',
+      );
+      return;
+    }
     if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
     final orgId = OperatorSession.organizationId;
     if (orgId == null) return;
