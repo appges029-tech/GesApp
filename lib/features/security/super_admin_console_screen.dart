@@ -185,6 +185,7 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
   Widget _dashboard() {
     final totals = _map(_data!['totals']);
     final schools = _list(_data!['organizations']);
+    final requests = _list(_data!['pending_requests']);
     final events = _list(_data!['recent_activity']);
 
     return Scaffold(
@@ -249,6 +250,32 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
             ],
             const SizedBox(height: 22),
             _TitleRow(
+              title: 'Demandes administrateurs',
+              subtitle: requests.length.toString() + ' en attente',
+            ),
+            const SizedBox(height: 10),
+            if (requests.isEmpty)
+              const _EmptyCard(
+                icon: Icons.check_circle_outline_rounded,
+                text: 'Aucune demande en attente.',
+              )
+            else
+              for (final request in requests) ...[
+                _PendingRequestCard(
+                  request: request,
+                  onReviewed: (approve, cycle) async {
+                    if (approve) {
+                      await _service.approveRequest(request['id'].toString(), cycle);
+                    } else {
+                      await _service.rejectRequest(request['id'].toString());
+                    }
+                    await _refresh();
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+            const SizedBox(height: 22),
+            _TitleRow(
               title: 'Établissements',
               subtitle: schools.length.toString() + ' au total',
             ),
@@ -263,10 +290,11 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
                 _SchoolCard(
                   school: school,
                   onToggle: (active) async {
-                    await _service.setSchoolActive(
-                      school['id'].toString(),
-                      active,
-                    );
+                    await _service.setSchoolActive(school['id'].toString(), active);
+                    await _refresh();
+                  },
+                  onRenew: (cycle) async {
+                    await _service.renewSubscription(school['id'].toString(), cycle);
                     await _refresh();
                   },
                 ),
@@ -419,6 +447,7 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
   final _managerUsername = TextEditingController();
   final _managerName = TextEditingController();
   final _managerPassword = TextEditingController();
+  String _subscriptionCycle = 'monthly';
   bool _busy = false;
   String? _error;
 
@@ -450,6 +479,7 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
         managerUsername: _managerUsername.text,
         managerName: _managerName.text,
         managerPassword: _managerPassword.text,
+        subscriptionCycle: _subscriptionCycle,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -528,6 +558,16 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
               Icons.password_outlined,
               obscure: true,
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _subscriptionCycle,
+              decoration: const InputDecoration(labelText: 'Abonnement après paiement'),
+              items: const [
+                DropdownMenuItem(value: 'monthly', child: Text('Mensuel · 1 mois')),
+                DropdownMenuItem(value: 'annual', child: Text('Annuel · 1 an')),
+              ],
+              onChanged: (value) => setState(() => _subscriptionCycle = value ?? 'monthly'),
+            ),
             if (_error != null) ...[
               const SizedBox(height: 12),
               _ErrorBanner(text: _error!),
@@ -566,9 +606,10 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
 }
 
 class _SchoolCard extends StatefulWidget {
-  const _SchoolCard({required this.school, required this.onToggle});
+  const _SchoolCard({required this.school, required this.onToggle, required this.onRenew});
   final Map<String, dynamic> school;
   final Future<void> Function(bool active) onToggle;
+  final Future<void> Function(String cycle) onRenew;
 
   @override
   State<_SchoolCard> createState() => _SchoolCardState();
@@ -576,6 +617,7 @@ class _SchoolCard extends StatefulWidget {
 
 class _SchoolCardState extends State<_SchoolCard> {
   bool _busy = false;
+  String _cycle = 'monthly';
 
   @override
   Widget build(BuildContext context) {
@@ -645,6 +687,10 @@ class _SchoolCardState extends State<_SchoolCard> {
                 Chip(label: Text(managers.length.toString() + ' gestionnaire(s)')),
                 Chip(label: Text(online.toString() + '/' + devices.toString() + ' en ligne')),
                 Chip(label: Text('Révision ' + revision.toString())),
+                Chip(label: Text('Abonnement : ' +
+                    (school['subscription_effective_status'] ?? '—').toString())),
+                Chip(label: Text('Échéance : ' +
+                    _date(school['subscription_expires_at']))),
                 if (size != null) Chip(label: Text(_bytes(size))),
               ],
             ),
@@ -656,6 +702,56 @@ class _SchoolCardState extends State<_SchoolCard> {
             Text(
               'Dernière synchro : ' + _date(sync['updated_at']),
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                DropdownButton<String>(
+                  value: _cycle,
+                  items: const [
+                    DropdownMenuItem(value: 'monthly', child: Text('Mensuel')),
+                    DropdownMenuItem(value: 'annual', child: Text('Annuel')),
+                  ],
+                  onChanged: _busy ? null :
+                      (value) => setState(() => _cycle = value ?? 'monthly'),
+                ),
+                FilledButton.icon(
+                  onPressed: _busy ? null : () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Confirmer le paiement ?'),
+                        content: const Text(
+                          'Cette action enregistrera un paiement validé et '
+                          'activera ou prolongera l’abonnement. '
+                          'Ne confirmez que lorsque le paiement est reçu.',
+                        ),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Annuler')),
+                          FilledButton(onPressed: () => Navigator.pop(context, true),
+                              child: const Text('Paiement reçu')),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !mounted) return;
+                    setState(() => _busy = true);
+                    try {
+                      await widget.onRenew(_cycle);
+                    } catch (e) {
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(e.toString())));
+                    } finally {
+                      if (mounted) setState(() => _busy = false);
+                    }
+                  },
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('Valider paiement / renouveler'),
+                ),
+              ],
             ),
           ],
         ),
@@ -813,6 +909,96 @@ class _EmptyCard extends StatelessWidget {
       child: ListTile(
         leading: Icon(icon),
         title: Text(text),
+      ),
+    );
+  }
+}
+
+class _PendingRequestCard extends StatefulWidget {
+  const _PendingRequestCard({required this.request, required this.onReviewed});
+  final Map<String, dynamic> request;
+  final Future<void> Function(bool approve, String cycle) onReviewed;
+
+  @override
+  State<_PendingRequestCard> createState() => _PendingRequestCardState();
+}
+
+class _PendingRequestCardState extends State<_PendingRequestCard> {
+  bool _busy = false;
+  String _cycle = 'monthly';
+
+  Future<void> _review(bool approve) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(approve ? 'Valider cet administrateur ?' : 'Refuser la demande ?'),
+        content: Text(approve
+          ? 'Confirmez uniquement après réception du paiement. '
+            'Un établissement et un abonnement actif seront alors créés.'
+          : 'Cette action refuse la demande sans créer de compte actif.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.pop(context, true),
+            child: Text(approve ? 'Valider le paiement' : 'Refuser')),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onReviewed(approve, _cycle);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final request = widget.request;
+    return GlassCard(
+      padding: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(request['school_name']?.toString() ?? 'Établissement',
+                style: Theme.of(context).textTheme.titleMedium),
+            Text((request['display_name'] ?? '').toString() + ' · ' +
+                (request['email'] ?? '').toString()),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                DropdownButton<String>(
+                  value: _cycle,
+                  items: const [
+                    DropdownMenuItem(value: 'monthly', child: Text('Mensuel')),
+                    DropdownMenuItem(value: 'annual', child: Text('Annuel')),
+                  ],
+                  onChanged: _busy ? null :
+                      (value) => setState(() => _cycle = value ?? 'monthly'),
+                ),
+                FilledButton.icon(
+                  onPressed: _busy ? null : () => _review(true),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Paiement reçu · Approuver'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _review(false),
+                  child: const Text('Refuser'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
