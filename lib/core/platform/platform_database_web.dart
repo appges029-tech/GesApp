@@ -6,3 +6,12 @@ void configurePlatformDatabase() {}
 DatabaseFactory get platformDatabaseFactory => databaseFactoryFfiWeb;
 
 Future<String> platformDatabasePath() async => 'gesapp.db';
+
+/// Le navigateur isole son stockage dans son sandbox/origine. Le runtime Web
+/// ne partage pas le fichier Windows gesapp.db.
+Future<void> preparePlatformDatabase(String path) async {}
+
+Future<void> configurePlatformDatabaseConnection(Database database) async {}
+
+Future<List<int>> readPortableDatabaseBytes(String path) async =>
+    throw UnsupportedError('Utilisez l’export JSON sur le Web.');

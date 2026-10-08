@@ -1,13 +1,40 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-super-admin-session",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const allowedOrigins = new Set([
+  "https://messageia.github.io",
+  "http://localhost",
+  "http://127.0.0.1",
+]);
+
+function corsFor(req: Request) {
+  const origin = req.headers.get("origin");
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-super-admin-session",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Vary": "Origin",
+  };
+  if (
+    origin &&
+    (
+      allowedOrigins.has(origin) ||
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:")
+    )
+  ) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
 const te = new TextEncoder();
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, "content-type": "application/json" } });
+const json = (req: Request, body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsFor(req), "content-type": "application/json" },
+  });
 
 function b64ToBytes(value: string) {
   const raw = atob(value);
@@ -50,9 +77,21 @@ function randomHex(bytes = 3) {
     .map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
 }
 
+function isStrongPassword(value: string) {
+  return value.length >= 10 &&
+    /[a-z]/.test(value) &&
+    /[A-Z]/.test(value) &&
+    /[0-9]/.test(value);
+}
+
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsFor(req) });
+  if (req.method !== "POST") return json(req, { error: "method_not_allowed" }, 405);
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > 65536) {
+    return json(req, { error: "payload_too_large" }, 413);
+  }
 
   const url = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -65,17 +104,17 @@ Deno.serve(async (req) => {
     if (action === "login") {
       const email = String(body.email ?? "").trim().toLowerCase();
       const code = String(body.code ?? "").trim();
-      if (!email || !code) return json({ error: "identifiants_requis" }, 400);
+      if (!email || !code) return json(req, { error: "identifiants_requis" }, 400);
 
       const { data: admin, error } = await server.from("platform_super_admins")
         .select("id,user_id,email,pin_salt,pin_hash,pin_iterations,active,failed_attempts,locked_until")
         .eq("email", email).maybeSingle();
-      if (error) return json({ error: "login_unavailable" }, 500);
-      if (!admin || !admin.active) return json({ error: "acces_refuse" }, 403);
+      if (error) return json(req, { error: "login_unavailable" }, 500);
+      if (!admin || !admin.active) return json(req, { error: "acces_refuse" }, 403);
 
       const now = new Date();
       if (admin.locked_until && new Date(admin.locked_until) > now) {
-        return json({ error: "compte_temporairement_verrouille", locked_until: admin.locked_until }, 429);
+        return json(req, { error: "compte_temporairement_verrouille", locked_until: admin.locked_until }, 429);
       }
 
       const ok = await verifyPin(code, admin.pin_salt, admin.pin_hash, Number(admin.pin_iterations));
@@ -87,7 +126,15 @@ Deno.serve(async (req) => {
           locked_until: lockedUntil,
           updated_at: new Date().toISOString(),
         }).eq("id", admin.id);
-        return json({ error: "identifiants_invalides" }, 401);
+        await server.from("platform_activity_events").insert({
+          organization_id: null,
+          actor_user_id: admin.user_id,
+          event_type: "super_admin_login_failed",
+          module: "super_admin",
+          message: "Tentative de connexion Super Admin refusée",
+          metadata: { attempts, locked: lockedUntil != null },
+        });
+        return json(req, { error: "identifiants_invalides" }, 401);
       }
 
       const token = bytesToB64Url(crypto.getRandomValues(new Uint8Array(32)));
@@ -96,14 +143,16 @@ Deno.serve(async (req) => {
       await server.from("platform_super_admins").update({
         failed_attempts: 0, locked_until: null, updated_at: new Date().toISOString(),
       }).eq("id", admin.id);
-      await server.from("platform_super_admin_sessions").delete()
-        .eq("super_admin_id", admin.id).lt("expires_at", new Date().toISOString());
+      await server.from("platform_super_admin_sessions")
+        .update({ revoked_at: new Date().toISOString() })
+        .eq("super_admin_id", admin.id)
+        .is("revoked_at", null);
       const { error: sessionError } = await server.from("platform_super_admin_sessions").insert({
         super_admin_id: admin.id,
         token_hash: tokenHash,
         expires_at: expiresAt,
       });
-      if (sessionError) return json({ error: "session_creation_failed" }, 500);
+      if (sessionError) return json(req, { error: "session_creation_failed" }, 500);
 
       await server.from("platform_activity_events").insert({
         organization_id: null,
@@ -114,11 +163,11 @@ Deno.serve(async (req) => {
         metadata: {},
       });
 
-      return json({ token, expires_at: expiresAt, email: admin.email });
+      return json(req, { token, expires_at: expiresAt, email: admin.email });
     }
 
-    const token = req.headers.get("x-super-admin-session") ?? String(body.session_token ?? "");
-    if (!token) return json({ error: "session_requise" }, 401);
+    const token = req.headers.get("x-super-admin-session") ?? "";
+    if (!token) return json(req, { error: "session_requise" }, 401);
     const tokenHash = await sha256Hex(token);
     const { data: session } = await server.from("platform_super_admin_sessions")
       .select("id,super_admin_id,expires_at,revoked_at")
@@ -126,19 +175,19 @@ Deno.serve(async (req) => {
       .is("revoked_at", null)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
-    if (!session) return json({ error: "session_invalide_ou_expiree" }, 401);
+    if (!session) return json(req, { error: "session_invalide_ou_expiree" }, 401);
 
     const { data: admin } = await server.from("platform_super_admins")
       .select("id,user_id,email,active")
       .eq("id", session.super_admin_id).eq("active", true).maybeSingle();
-    if (!admin) return json({ error: "acces_refuse" }, 403);
+    if (!admin) return json(req, { error: "acces_refuse" }, 403);
     await server.from("platform_super_admin_sessions")
       .update({ last_seen_at: new Date().toISOString() }).eq("id", session.id);
 
     if (action === "logout") {
       await server.from("platform_super_admin_sessions")
         .update({ revoked_at: new Date().toISOString() }).eq("id", session.id);
-      return json({ ok: true });
+      return json(req, { ok: true });
     }
 
     if (action === "overview") {
@@ -152,7 +201,7 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: false }).limit(80),
       ]);
       for (const result of [orgsRes, membersRes, devicesRes, syncRes, eventsRes]) {
-        if (result.error) return json({ error: result.error.message }, 500);
+        if (result.error) return json(req, { error: result.error.message }, 500);
       }
       const members = membersRes.data ?? [], devices = devicesRes.data ?? [], syncs = syncRes.data ?? [];
       const now = Date.now();
@@ -179,7 +228,7 @@ Deno.serve(async (req) => {
           organization_code: org?.code ?? null,
         };
       });
-      return json({
+      return json(req, {
         generated_at: new Date().toISOString(),
         totals: {
           schools: organizations.length,
@@ -203,11 +252,11 @@ Deno.serve(async (req) => {
       const managerName = String(body.manager_name ?? "").trim();
       const managerPassword = String(body.manager_password ?? "");
 
-      if (name.length < 3 || !adminEmail.includes("@") || adminName.length < 2 || adminPassword.length < 8) {
-        return json({ error: "donnees_ecole_ou_admin_invalides" }, 400);
+      if (name.length < 3 || !adminEmail.includes("@") || adminName.length < 2 || !isStrongPassword(adminPassword)) {
+        return json(req, { error: "donnees_ecole_ou_admin_invalides" }, 400);
       }
-      if (managerUsername.length < 3 || managerName.length < 2 || managerPassword.length < 8) {
-        return json({ error: "donnees_gestionnaire_invalides" }, 400);
+      if (managerUsername.length < 3 || managerName.length < 2 || !isStrongPassword(managerPassword)) {
+        return json(req, { error: "donnees_gestionnaire_invalides" }, 400);
       }
 
       let adminUserId: string | null = null;
@@ -221,7 +270,7 @@ Deno.serve(async (req) => {
           app_metadata: { gesapp_role: "admin" },
           user_metadata: { display_name: adminName },
         });
-        if (adminErr || !createdAdmin.user) return json({ error: adminErr?.message ?? "creation_admin_impossible" }, 409);
+        if (adminErr || !createdAdmin.user) return json(req, { error: adminErr?.message ?? "creation_admin_impossible" }, 409);
         adminUserId = createdAdmin.user.id;
 
         const baseCode = preferredCode || normalizeCode(name) || "ECOLE";
@@ -290,7 +339,7 @@ Deno.serve(async (req) => {
           metadata: { code, admin_email: adminEmail, manager_username: managerUsername },
         });
 
-        return json({
+        return json(req, {
           ok: true,
           organization: org,
           administrator: { email: adminEmail, display_name: adminName },
@@ -306,18 +355,19 @@ Deno.serve(async (req) => {
         }
         if (managerUserId) await server.auth.admin.deleteUser(managerUserId);
         if (adminUserId) await server.auth.admin.deleteUser(adminUserId);
-        return json({ error: e instanceof Error ? e.message : String(e) }, 409);
+        console.error("create_school_failed", e);
+        return json(req, { error: "creation_ecole_impossible" }, 409);
       }
     }
 
     if (action === "set_school_active") {
       const organizationId = String(body.organization_id ?? "");
       const active = body.active === true;
-      if (!organizationId) return json({ error: "organization_id_requis" }, 400);
+      if (!organizationId) return json(req, { error: "organization_id_requis" }, 400);
       const { data: org, error } = await server.from("organizations")
         .update({ active, updated_at: new Date().toISOString() })
         .eq("id", organizationId).select("id,code,name,active").maybeSingle();
-      if (error || !org) return json({ error: error?.message ?? "ecole_introuvable" }, 404);
+      if (error || !org) return json(req, { error: error?.message ?? "ecole_introuvable" }, 404);
       await server.from("platform_activity_events").insert({
         organization_id: organizationId,
         actor_user_id: admin.user_id,
@@ -326,11 +376,12 @@ Deno.serve(async (req) => {
         message: active ? "Établissement activé" : "Établissement suspendu",
         metadata: { code: org.code },
       });
-      return json({ ok: true, organization: org });
+      return json(req, { ok: true, organization: org });
     }
 
-    return json({ error: "action_inconnue" }, 400);
+    return json(req, { error: "action_inconnue" }, 400);
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    console.error("super_admin_api_unhandled", e);
+    return json(req, { error: "internal_error" }, 500);
   }
 });

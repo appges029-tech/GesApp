@@ -504,7 +504,7 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
             const SizedBox(height: 10),
             _field(
               _adminPassword,
-              'Mot de passe temporaire (8 caractères minimum)',
+              'Mot de passe temporaire (10+ caractères, majuscule, minuscule, chiffre)',
               Icons.password_rounded,
               obscure: true,
             ),
@@ -524,7 +524,7 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
             const SizedBox(height: 10),
             _field(
               _managerPassword,
-              'Mot de passe temporaire (8 caractères minimum)',
+              'Mot de passe temporaire (10+ caractères, majuscule, minuscule, chiffre)',
               Icons.password_outlined,
               obscure: true,
             ),

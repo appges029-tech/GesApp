@@ -20,11 +20,15 @@ class AppDatabase {
   Future<void> initialize() async {
     if (_db != null) return;
     final path = await databasePath;
+    await preparePlatformDatabase(path);
     _db = await platformDatabaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
         version: 29,
         onConfigure: (database) async {
+          // Doit être le tout premier accès à la connexion : sur Windows
+          // release, la clé SQLCipher doit être appliquée avant toute lecture.
+          await configurePlatformDatabaseConnection(database);
           await database.execute('PRAGMA foreign_keys = ON');
           try {
             await database.rawQuery('PRAGMA journal_mode = TRUNCATE');
