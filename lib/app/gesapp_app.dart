@@ -42,7 +42,8 @@ class GesApp extends StatelessWidget {
                 ),
                 if (OperatorSession.isReadOnly)
                   const _AdminReadOnlyBadge(),
-                const TenantSubscriptionOverlay(),
+                if (OperatorSession.organizationId != null)
+                  const TenantSubscriptionOverlay(),
               ],
             ),
           ),
