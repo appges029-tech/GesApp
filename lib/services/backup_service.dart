@@ -61,7 +61,7 @@ class BackupService {
     final payload = <String, Object?>{
       'format': 5,
       'created_at': DateTime.now().toIso8601String(),
-      'database': base64Encode(await File(databasePath).readAsBytes()),
+      'database': base64Encode(await readPortableDatabaseBytes(databasePath)),
       'media': await _collectAllMedia(appDocs.path, databasePath),
       'attachments': await _collectReferencedFiles(databasePath),
     };
