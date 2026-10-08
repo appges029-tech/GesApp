@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 
 class CashScreen extends ConsumerStatefulWidget {
@@ -185,10 +186,11 @@ class _CashScreenState extends ConsumerState<CashScreen> {
           Text('Ouverture / clôture', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _account,
             decoration: const InputDecoration(labelText: 'Caisse / compte'),
             items: _accounts
-                .map((account) => DropdownMenuItem(value: account['id'] as String, child: Text(account['name'] as String)))
+                .map((account) => DropdownMenuItem(value: account['id'] as String, child: Text(account['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis)))
                 .toList(),
             onChanged: (value) async {
               _account = value;
@@ -209,7 +211,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
               child: ListTile(
                 title: const Text('Caisse fermée'),
                 subtitle: const Text('Tout mouvement sur cette caisse est bloqué tant qu’elle n’est pas ouverte.'),
-                trailing: FilledButton(onPressed: _account == null ? null : _openCash, child: const Text('Ouvrir')),
+                trailing: OperatorSession.isReadOnly ? null : FilledButton(onPressed: _account == null ? null : _openCash, child: const Text('Ouvrir')),
               ),
             )
           else
@@ -227,7 +229,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                       Text('Solde théorique : ${snapshot.hasData ? formatXaf(snapshot.data!) : 'Calcul…'}'),
                       const SizedBox(height: 12),
                       FilledButton.icon(
-                        onPressed: snapshot.hasData ? () => _closeCash(snapshot.data!) : null,
+                        onPressed: OperatorSession.isReadOnly || !snapshot.hasData ? null : () => _closeCash(snapshot.data!),
                         icon: const Icon(Icons.lock_outline),
                         label: const Text('Clôturer'),
                       ),
@@ -236,36 +238,40 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: 28),
-          Text('Transfert entre comptes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _transferFrom,
-                  decoration: const InputDecoration(labelText: 'Depuis'),
-                  items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String))).toList(),
-                  onChanged: (v) => setState(() => _transferFrom = v),
+          if (!OperatorSession.isReadOnly) ...[
+            const SizedBox(height: 28),
+            Text('Transfert entre comptes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+            isExpanded: true,
+                    initialValue: _transferFrom,
+                    decoration: const InputDecoration(labelText: 'Depuis'),
+                    items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (v) => setState(() => _transferFrom = v),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _transferTo,
-                  decoration: const InputDecoration(labelText: 'Vers'),
-                  items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String))).toList(),
-                  onChanged: (v) => setState(() => _transferTo = v),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+            isExpanded: true,
+                    initialValue: _transferTo,
+                    decoration: const InputDecoration(labelText: 'Vers'),
+                    items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (v) => setState(() => _transferTo = v),
+                  ),
                 ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _busy || _transferFrom == null || _transferTo == null || _transferFrom == _transferTo ? null : _transfer,
+              icon: const Icon(Icons.swap_horiz),
+              label: const Text('Enregistrer un transfert'),
+            ),
             ],
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _busy || _transferFrom == null || _transferTo == null || _transferFrom == _transferTo ? null : _transfer,
-            icon: const Icon(Icons.swap_horiz),
-            label: const Text('Enregistrer un transfert'),
-          ),
           const SizedBox(height: 20),
           if (_transfers.isNotEmpty) ...[
             Text('Transferts récents', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),

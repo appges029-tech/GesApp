@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../data/models/hr.dart';
 import 'employee_detail_screen.dart';
 import 'employee_form_screen.dart';
@@ -81,7 +82,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: OperatorSession.isReadOnly ? null : FloatingActionButton.extended(
         onPressed: () async {
           final result = await Navigator.push<String>(
             context,

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/layout/responsive_layout.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../services/asset_document_service.dart';
 import 'asset_form_screen.dart';
@@ -34,13 +35,13 @@ class _AssetDetailScreenState extends ConsumerState<AssetDetailScreen> {
     final ok = await showDialog<bool>(context: context, builder: (context) => StatefulBuilder(builder: (context, setLocal) => AlertDialog(
       title: const Text('Affecter / déplacer le bien'),
       content: ResponsiveDialogContent(maxWidth: 460, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        DropdownButtonFormField<String>(initialValue: type, decoration: const InputDecoration(labelText: 'Type de mouvement'), items: const [
+        DropdownButtonFormField<String>(isExpanded:true,initialValue: type, decoration: const InputDecoration(labelText: 'Type de mouvement'), items: const [
           DropdownMenuItem(value:'transfer',child:Text('Transfert')), DropdownMenuItem(value:'assignment',child:Text('Affectation')), DropdownMenuItem(value:'loan',child:Text('Prêt')), DropdownMenuItem(value:'return',child:Text('Retour')),
         ], onChanged:(v)=>setLocal(()=>type=v??'transfer')),
         const SizedBox(height:10),
-        DropdownButtonFormField<String?>(initialValue: locationId, decoration: const InputDecoration(labelText: 'Nouvelle localisation'), items: [const DropdownMenuItem<String?>(value:null,child:Text('Aucune')),...locations.map((l)=>DropdownMenuItem<String?>(value:l.id,child:Text(l.name)))], onChanged:(v)=>setLocal(()=>locationId=v)),
+        DropdownButtonFormField<String?>(isExpanded:true,initialValue: locationId, decoration: const InputDecoration(labelText: 'Nouvelle localisation'), items: [const DropdownMenuItem<String?>(value:null,child:Text('Aucune')),...locations.map((l)=>DropdownMenuItem<String?>(value:l.id,child:Text(l.name,maxLines:1,overflow:TextOverflow.ellipsis)))], onChanged:(v)=>setLocal(()=>locationId=v)),
         const SizedBox(height:10),
-        DropdownButtonFormField<String?>(initialValue: employeeId, decoration: const InputDecoration(labelText: 'Responsable / employé'), items: [const DropdownMenuItem<String?>(value:null,child:Text('Aucun')),...employees.map((e)=>DropdownMenuItem<String?>(value:e['id'] as String,child:Text('${e['name']}')))], onChanged:(v)=>setLocal(()=>employeeId=v)),
+        DropdownButtonFormField<String?>(isExpanded:true,initialValue: employeeId, decoration: const InputDecoration(labelText: 'Responsable / employé'), items: [const DropdownMenuItem<String?>(value:null,child:Text('Aucun')),...employees.map((e)=>DropdownMenuItem<String?>(value:e['id'] as String,child:Text('${e['name']}',maxLines:1,overflow:TextOverflow.ellipsis)))], onChanged:(v)=>setLocal(()=>employeeId=v)),
         const SizedBox(height:10),
         TextField(controller: reason, decoration: const InputDecoration(labelText:'Motif / observation')),
       ])),
@@ -74,10 +75,10 @@ class _AssetDetailScreenState extends ConsumerState<AssetDetailScreen> {
     final ok=await showDialog<bool>(context:context,builder:(context)=>StatefulBuilder(builder:(context,setLocal)=>AlertDialog(
       title:const Text('Sortir du patrimoine'),
       content:ResponsiveDialogContent(maxWidth:430,child:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<String>(initialValue:type,decoration:const InputDecoration(labelText:'Mode de sortie'),items:const[
+        DropdownButtonFormField<String>(isExpanded:true,initialValue:type,decoration:const InputDecoration(labelText:'Mode de sortie'),items:const[
           DropdownMenuItem(value:'sale',child:Text('Vente')),DropdownMenuItem(value:'donation',child:Text('Don')),DropdownMenuItem(value:'reform',child:Text('Réforme / mise au rebut')),DropdownMenuItem(value:'loss',child:Text('Perte')),DropdownMenuItem(value:'destruction',child:Text('Destruction')),
         ],onChanged:(v)=>setLocal(()=>type=v??'reform')),
-        if(type=='sale')...[const SizedBox(height:10),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Montant encaissé (XAF)')),const SizedBox(height:10),DropdownButtonFormField<String>(initialValue:cashAccountId,decoration:const InputDecoration(labelText:'Compte d’encaissement'),items:accounts.map((a)=>DropdownMenuItem(value:'${a['id']}',child:Text('${a['name']}'))).toList(),onChanged:(v)=>setLocal(()=>cashAccountId=v)),const SizedBox(height:10),TextField(controller:reference,decoration:const InputDecoration(labelText:'Référence de cession'))],
+        if(type=='sale')...[const SizedBox(height:10),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Montant encaissé (XAF)')),const SizedBox(height:10),DropdownButtonFormField<String>(isExpanded:true,initialValue:cashAccountId,decoration:const InputDecoration(labelText:'Compte d’encaissement'),items:accounts.map((a)=>DropdownMenuItem(value:'${a['id']}',child:Text('${a['name']}',maxLines:1,overflow:TextOverflow.ellipsis))).toList(),onChanged:(v)=>setLocal(()=>cashAccountId=v)),const SizedBox(height:10),TextField(controller:reference,decoration:const InputDecoration(labelText:'Référence de cession'))],
         const SizedBox(height:10),TextField(controller:reason,maxLines:2,decoration:const InputDecoration(labelText:'Motif')),
       ])),
       actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Annuler')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Confirmer'))],
@@ -90,9 +91,9 @@ class _AssetDetailScreenState extends ConsumerState<AssetDetailScreen> {
   Widget build(BuildContext context) {
     final repo=ref.read(assetRepositoryProvider);
     return Scaffold(
-      appBar:AppBar(title:const Text('Fiche patrimoine'),actions:[IconButton(onPressed:_edit,icon:const Icon(Icons.edit_outlined)),PopupMenuButton<String>(onSelected:(v){if(v=='move')_move();if(v=='doc')_addDocument();if(v=='dispose')_disposeAsset();},itemBuilder:(_)=>const[
+      appBar:AppBar(title:const Text('Fiche patrimoine'),actions:[if(!OperatorSession.isReadOnly)...[IconButton(onPressed:_edit,icon:const Icon(Icons.edit_outlined)),PopupMenuButton<String>(onSelected:(v){if(v=='move')_move();if(v=='doc')_addDocument();if(v=='dispose')_disposeAsset();},itemBuilder:(_)=>const[
         PopupMenuItem(value:'move',child:Text('Affecter / déplacer')),PopupMenuItem(value:'doc',child:Text('Ajouter un document')),PopupMenuDivider(),PopupMenuItem(value:'dispose',child:Text('Sortir du patrimoine')),
-      ])]),
+      ])]]),
       body:FutureBuilder<List<Object?>>(
         key:ValueKey(_refresh),
         future:Future.wait<Object?>([repo.assetDetails(widget.assetId),repo.movements(widget.assetId),repo.documents(widget.assetId),repo.maintenance(assetId:widget.assetId)]),

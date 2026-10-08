@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../data/repositories/settings_repository.dart';
 
 class SchoolYearsScreen extends ConsumerStatefulWidget {
@@ -113,7 +114,7 @@ class _SchoolYearsScreenState extends ConsumerState<SchoolYearsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Années scolaires')),
-      floatingActionButton: FloatingActionButton.extended(onPressed: _create, icon: const Icon(Icons.add), label: const Text('Nouvelle année')),
+      floatingActionButton: OperatorSession.isReadOnly ? null : FloatingActionButton.extended(onPressed: _create, icon: const Icon(Icons.add), label: const Text('Nouvelle année')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _years.isEmpty
@@ -126,7 +127,7 @@ class _SchoolYearsScreenState extends ConsumerState<SchoolYearsScreen> {
                       title: Text(year.label, style: const TextStyle(fontWeight: FontWeight.w800)),
                       subtitle: Text('${DateFormat('dd/MM/yyyy').format(year.startDate)} → ${DateFormat('dd/MM/yyyy').format(year.endDate)}${year.isActive ? '\nAnnée active' : ''}'),
                       isThreeLine: year.isActive,
-                      trailing: year.isActive ? null : TextButton(onPressed: () => _activate(year), child: const Text('Activer')),
+                      trailing: year.isActive || OperatorSession.isReadOnly ? null : TextButton(onPressed: () => _activate(year), child: const Text('Activer')),
                     ),
                   )).toList(),
                 ),

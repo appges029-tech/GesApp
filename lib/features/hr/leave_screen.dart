@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/layout/responsive_layout.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../data/models/hr.dart';
 import '../../services/hr_document_service.dart';
 
@@ -179,7 +180,7 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: OperatorSession.isReadOnly ? null : FloatingActionButton.extended(
         onPressed: _create,
         icon: const Icon(Icons.add),
         label: const Text('Demande'),
@@ -204,7 +205,7 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen> {
                   title: Text(request.employeeName, style: const TextStyle(fontWeight: FontWeight.w800)),
                   subtitle: Text('${request.leaveTypeName} · $period · ${request.days} j\nStatut : ${request.status}${reason.isEmpty ? '' : '\n$reason'}'),
                   isThreeLine: true,
-                  trailing: request.status == 'pending'
+                  trailing: request.status == 'pending' && !OperatorSession.isReadOnly
                       ? PopupMenuButton<String>(
                           onSelected: (value) => _decide(request, value == 'approve'),
                           itemBuilder: (_) => const [

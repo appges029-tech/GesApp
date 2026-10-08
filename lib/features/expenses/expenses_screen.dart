@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/platform/download_service.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/sensitive_authorization_dialog.dart';
 import '../../core/windows/windows_page_scaffold.dart';
@@ -275,9 +276,9 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
               PopupMenuItem(value: 'rejected', child: Text('Rejetées')),
             ],
           ),
-        if (desktop) WindowsCommandButton(icon: Icons.add, label: 'Nouvelle demande', primary: true, onPressed: _newExpense),
+        if (desktop && !OperatorSession.isReadOnly) WindowsCommandButton(icon: Icons.add, label: 'Nouvelle demande', primary: true, onPressed: _newExpense),
       ],
-      floatingActionButton: desktop ? null : FloatingActionButton.extended(onPressed: _newExpense, icon: const Icon(Icons.add), label: const Text('Nouvelle demande')),
+      floatingActionButton: desktop || OperatorSession.isReadOnly ? null : FloatingActionButton.extended(onPressed: _newExpense, icon: const Icon(Icons.add), label: const Text('Nouvelle demande')),
       body: body,
     );
   }
@@ -371,12 +372,12 @@ class _DesktopExpenseList extends StatelessWidget {
                         },
                         itemBuilder: (_) => [
                           if ((item.proofPath ?? '').isNotEmpty) const PopupMenuItem(value: 'proof', child: Text('Voir le justificatif')),
-                          if (item.isPending) ...const [
+                          if (!OperatorSession.isReadOnly && item.isPending) ...const [
                             PopupMenuItem(value: 'approve', child: Text('Approuver')),
                             PopupMenuItem(value: 'reject', child: Text('Rejeter')),
                           ],
-                          if (item.isRejected) const PopupMenuItem(value: 'resubmit', child: Text('Resoumettre')),
-                          if (item.isApproved) const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
+                          if (!OperatorSession.isReadOnly && item.isRejected) const PopupMenuItem(value: 'resubmit', child: Text('Resoumettre')),
+                          if (!OperatorSession.isReadOnly && item.isApproved) const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                         ],
                       ),
                     ),
@@ -434,16 +435,17 @@ class _ExpenseCard extends StatelessWidget {
             if ((item.description ?? '').isNotEmpty) Text(item.description!),
             if ((item.approvalNote ?? '').isNotEmpty) Text('Décision : ${item.approvalNote}', style: Theme.of(context).textTheme.bodySmall),
             if ((item.proofPath ?? '').isNotEmpty) TextButton.icon(onPressed: onProof, icon: const Icon(Icons.attach_file), label: const Text('Voir / télécharger le justificatif')),
-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              if (item.isPending) ...[
-                TextButton.icon(onPressed: onReject, icon: const Icon(Icons.close), label: const Text('Rejeter')),
-                const SizedBox(width: 8),
-                FilledButton.icon(onPressed: onApprove, icon: const Icon(Icons.check), label: const Text('Approuver')),
-              ] else if (item.isRejected)
-                FilledButton.tonalIcon(onPressed: onResubmit, icon: const Icon(Icons.refresh), label: const Text('Resoumettre'))
-              else if (item.isApproved)
-                TextButton.icon(onPressed: onCancel, icon: const Icon(Icons.cancel_outlined), label: const Text('Annuler')),
-            ]),
+            if (!OperatorSession.isReadOnly)
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                if (item.isPending) ...[
+                  TextButton.icon(onPressed: onReject, icon: const Icon(Icons.close), label: const Text('Rejeter')),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(onPressed: onApprove, icon: const Icon(Icons.check), label: const Text('Approuver')),
+                ] else if (item.isRejected)
+                  FilledButton.tonalIcon(onPressed: onResubmit, icon: const Icon(Icons.refresh), label: const Text('Resoumettre'))
+                else if (item.isApproved)
+                  TextButton.icon(onPressed: onCancel, icon: const Icon(Icons.cancel_outlined), label: const Text('Annuler')),
+              ]),
           ]),
         ),
       );

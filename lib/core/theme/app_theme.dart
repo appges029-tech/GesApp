@@ -12,6 +12,7 @@ abstract final class AppTheme {
     final radius = windows ? 8.0 : 16.0;
     final controlRadius = windows ? 6.0 : 14.0;
     final controlHeight = windows ? 40.0 : 50.0;
+    final overlaySurface = dark ? AppColors.darkSurface : AppColors.surface;
     final scheme = ColorScheme.fromSeed(
       seedColor: AppColors.primary,
       brightness: brightness,
@@ -30,7 +31,7 @@ abstract final class AppTheme {
       brightness: brightness,
       colorScheme: scheme,
       scaffoldBackgroundColor: Colors.transparent,
-      canvasColor: Colors.transparent,
+      canvasColor: overlaySurface,
       fontFamily: null,
       visualDensity: windows ? VisualDensity.compact : VisualDensity.standard,
       pageTransitionsTheme: const PageTransitionsTheme(
@@ -171,10 +172,8 @@ abstract final class AppTheme {
         unselectedLabelTextStyle: TextStyle(color: dark ? AppColors.darkTextSecondary : AppColors.textSecondary, fontWeight: FontWeight.w600),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: (dark ? AppColors.darkSurface : AppColors.surface)
-            .withValues(alpha: dark ? .78 : .76),
-        modalBackgroundColor: (dark ? AppColors.darkSurface : AppColors.surface)
-            .withValues(alpha: dark ? .82 : .80),
+        backgroundColor: overlaySurface.withValues(alpha: dark ? .97 : .96),
+        modalBackgroundColor: overlaySurface.withValues(alpha: dark ? .98 : .97),
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
         shape: RoundedRectangleBorder(
@@ -183,20 +182,49 @@ abstract final class AppTheme {
       ),
       dialogTheme: DialogThemeData(
         elevation: 0,
-        backgroundColor: (dark ? AppColors.darkSurface : AppColors.surface)
-            .withValues(alpha: dark ? .82 : .80),
+        backgroundColor: overlaySurface.withValues(alpha: dark ? .98 : .97),
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(windows ? 14 : 28)),
       ),
-      menuTheme: windows
-          ? MenuThemeData(
-              style: MenuStyle(shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)))),
-            )
-          : null,
+      popupMenuTheme: PopupMenuThemeData(
+        color: overlaySurface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(windows ? 8 : 14),
+        ),
+      ),
+      dropdownMenuTheme: DropdownMenuThemeData(
+        menuStyle: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(overlaySurface),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(windows ? 8 : 14),
+            ),
+          ),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(overlaySurface),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(windows ? 8 : 14),
+            ),
+          ),
+        ),
+      ),
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: overlaySurface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      timePickerTheme: TimePickerThemeData(
+        backgroundColor: overlaySurface,
+      ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: (dark ? AppColors.darkSurface : AppColors.surface)
-            .withValues(alpha: dark ? .90 : .88),
+        backgroundColor: overlaySurface.withValues(alpha: dark ? .98 : .97),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(windows ? 8 : 14)),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(color: AppColors.primary),

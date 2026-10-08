@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/layout/responsive_layout.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/asset.dart';
@@ -32,7 +33,7 @@ class _AssetListScreenState extends ConsumerState<AssetListScreen> {
     final repo = ref.read(assetRepositoryProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Biens & équipements')),
-      floatingActionButton: FloatingActionButton.extended(onPressed: () => _open(const AssetFormScreen()), icon: const Icon(Icons.add), label: const Text('Nouveau bien')),
+      floatingActionButton: OperatorSession.isReadOnly ? null : FloatingActionButton.extended(onPressed: () => _open(const AssetFormScreen()), icon: const Icon(Icons.add), label: const Text('Nouveau bien')),
       body: Column(children: [
         ResponsiveContent(
           maxWidth: 1200,
