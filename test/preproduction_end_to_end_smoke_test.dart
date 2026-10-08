@@ -73,6 +73,14 @@ void main() {
       lastName: 'Production',
       classroomId: classroom.id,
     );
+    // Le scénario facture octobre : l'inscription doit donc être effective
+    // au début de la période, pas à la date d'exécution du test.
+    await AppDatabase.instance.db.update(
+      'student_enrollments',
+      {'effective_from': DateTime(2026, 10, 1).toIso8601String()},
+      where: 'student_id = ?',
+      whereArgs: [studentId],
+    );
 
     await finance.addFeeCategory(
       name: 'Scolarité smoke',
