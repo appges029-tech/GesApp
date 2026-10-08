@@ -13,6 +13,19 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../core/platform/platform_database.dart';
 import '../core/session/business_write_guard.dart';
 
+Future<Database> _openProtectedDatabase(
+  String path, {
+  bool readOnly = false,
+}) =>
+    platformDatabaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        readOnly: readOnly,
+        singleInstance: false,
+        onConfigure: configurePlatformDatabaseConnection,
+      ),
+    );
+
 /// Sauvegarde GesApp V5.
 ///
 /// V5 utilise PBKDF2-HMAC-SHA256 + AES-256-GCM. V4 protège la base SQLite et tous les médias gérés/référencés par GesApp
@@ -75,7 +88,7 @@ class BackupService {
   Future<List<Map<String, String>>> _collectReferencedFiles(String databasePath) async {
     Database? db;
     try {
-      db = await platformDatabaseFactory.openDatabase(databasePath, options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+      db = await _openProtectedDatabase(databasePath, readOnly: true);
       final tableRows = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
       );
@@ -120,10 +133,7 @@ class BackupService {
     await root.create(recursive: true);
     Database? db;
     try {
-      db = await platformDatabaseFactory.openDatabase(
-        databasePath,
-        options: OpenDatabaseOptions(singleInstance: false),
-      );
+      db = await _openProtectedDatabase(databasePath);
       for (final raw in value) {
         if (raw is! Map) continue;
         final table = raw['table']?.toString();
@@ -355,10 +365,7 @@ class BackupService {
     await _relinkMediaPaths(databasePath, appDocsPath);
     Database? db;
     try {
-      db = await platformDatabaseFactory.openDatabase(
-        databasePath,
-        options: OpenDatabaseOptions(singleInstance: false),
-      );
+      db = await _openProtectedDatabase(databasePath);
       final establishments = await db.query('establishments', columns: ['id', 'logo_path']);
       for (final row in establishments) {
         final old = row['logo_path']?.toString() ?? '';
@@ -430,10 +437,7 @@ class BackupService {
   Future<void> _relinkMediaPaths(String databasePath, String appDocsPath) async {
     Database? db;
     try {
-      db = await platformDatabaseFactory.openDatabase(
-        databasePath,
-        options: OpenDatabaseOptions(singleInstance: false),
-      );
+      db = await _openProtectedDatabase(databasePath);
       final students = await db.query('students', columns: ['id', 'photo_path']);
       for (final row in students) {
         final studentId = row['id'] as String;
@@ -463,13 +467,27 @@ class BackupService {
     await temp.writeAsBytes(bytes, flush: true);
     await _validateSqliteDatabase(temp.path);
     if (await safety.exists()) await safety.delete();
+
     var movedCurrent = false;
     try {
-      if (await db.exists()) { await db.rename(safety.path); movedCurrent = true; }
+      if (await db.exists()) {
+        await db.rename(safety.path);
+        movedCurrent = true;
+      }
       await temp.rename(databasePath);
+
+      // Une sauvegarde historique peut contenir une base SQLite en clair.
+      // Sur Windows release elle est convertie immédiatement avant toute
+      // réouverture métier.
+      await preparePlatformDatabase(databasePath);
+
+      if (await safety.exists()) await safety.delete();
     } catch (_) {
       if (await temp.exists()) await temp.delete();
-      if (movedCurrent && !await db.exists() && await safety.exists()) await safety.rename(databasePath);
+      if (await db.exists()) await db.delete();
+      if (movedCurrent && await safety.exists()) {
+        await safety.rename(databasePath);
+      }
       rethrow;
     }
   }
@@ -499,16 +517,57 @@ class BackupService {
   }
 
   Future<void> _validateSqliteDatabase(String path) async {
-    Database? candidate;
-    try {
-      candidate = await platformDatabaseFactory.openDatabase(path, options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+    Future<void> validate(Database candidate) async {
       final integrityRows = await candidate.rawQuery('PRAGMA integrity_check');
-      final messages = integrityRows.expand((row) => row.values).map((v) => v.toString().toLowerCase()).toList();
-      if (messages.length != 1 || messages.single != 'ok') throw StateError('La sauvegarde contient une base SQLite endommagée.');
-      if ((await candidate.rawQuery('PRAGMA foreign_key_check')).isNotEmpty) throw StateError('La sauvegarde contient des références incohérentes.');
-      final expectedTables = await candidate.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('students','payments','dues','expenses','establishments')");
-      if (expectedTables.length < 5) throw StateError('Le fichier SQLite n’est pas une sauvegarde GesApp complète.');
-    } finally { await candidate?.close(); }
+      final messages = integrityRows
+          .expand((row) => row.values)
+          .map((value) => value.toString().toLowerCase())
+          .toList();
+      if (messages.length != 1 || messages.single != 'ok') {
+        throw StateError('La sauvegarde contient une base SQLite endommagée.');
+      }
+      if ((await candidate.rawQuery('PRAGMA foreign_key_check')).isNotEmpty) {
+        throw StateError('La sauvegarde contient des références incohérentes.');
+      }
+      final expectedTables = await candidate.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name IN ('students','payments','dues','expenses','establishments')",
+      );
+      if (expectedTables.length < 5) {
+        throw StateError('Le fichier SQLite n’est pas une sauvegarde GesApp complète.');
+      }
+    }
+
+    Database? candidate;
+    Object? plaintextError;
+    try {
+      // Compatibilité sauvegardes historiques : tente d'abord une SQLite
+      // standard. Une sauvegarde créée après durcissement Windows nécessitera
+      // la clé SQLCipher et sera retentée juste après.
+      candidate = await platformDatabaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
+      );
+      await validate(candidate);
+      return;
+    } catch (error) {
+      plaintextError = error;
+    } finally {
+      await candidate?.close();
+      candidate = null;
+    }
+
+    try {
+      candidate = await _openProtectedDatabase(path, readOnly: true);
+      await validate(candidate);
+    } catch (_) {
+      throw StateError(
+        'La sauvegarde ne peut être validée ni comme SQLite historique '
+        'ni avec la clé SQLCipher de ce poste. Détail initial: $plaintextError',
+      );
+    } finally {
+      await candidate?.close();
+    }
   }
 
   bool _looksLikeSqlite(List<int> bytes) {
