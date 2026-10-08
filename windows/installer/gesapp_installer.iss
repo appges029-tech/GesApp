@@ -9,8 +9,10 @@
 ;      (ex: ISCC.exe /DGesAppReleaseDir="C:\chemin\vers\build\windows\x64\runner\Release" gesapp_installer.iss)
 
 #define MyAppName "GesApp"
-#define MyAppVersion "1.4.1"
-#define MyAppPublisher "GesApp"
+#ifndef MyAppVersion
+  #define MyAppVersion "2.2.4"
+#endif
+#define MyAppPublisher "GodFirst"
 #define MyAppExeName "gesapp.exe"
 
 #ifndef GesAppReleaseDir
