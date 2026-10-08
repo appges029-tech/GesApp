@@ -220,3 +220,57 @@ Future<void> _verifyEncryptedDatabase(String path, String key) async {
     db.close();
   }
 }
+
+Future<List<int>> readPortableDatabaseBytes(String path) async {
+  if (!_encryptWindowsDatabase) {
+    return File(path).readAsBytes();
+  }
+
+  final key = _releaseDatabaseKey ??= await _loadOrCreateDatabaseKey();
+  _assertSqlCipherRuntime();
+
+  final tempPath = '$path.portable-export';
+  final tempFile = File(tempPath);
+  if (await tempFile.exists()) await tempFile.delete();
+
+  final db = sqlite.sqlite3.open(path);
+  try {
+    db.execute("PRAGMA key = \"x'$key'\";");
+    db.select('SELECT count(*) FROM sqlite_master;');
+
+    final escapedPath = tempPath.replaceAll("'", "''");
+    db.execute("ATTACH DATABASE '$escapedPath' AS portable KEY '';");
+    try {
+      db.execute("SELECT sqlcipher_export('portable');");
+      final userVersionRows = db.select('PRAGMA user_version;');
+      final userVersion = userVersionRows.isEmpty
+          ? 0
+          : (userVersionRows.first.values.first as num?)?.toInt() ?? 0;
+      db.execute('PRAGMA portable.user_version = $userVersion;');
+    } finally {
+      db.execute('DETACH DATABASE portable;');
+    }
+  } finally {
+    db.close();
+  }
+
+  try {
+    // Ouvre la copie sans clé pour garantir qu'elle est réellement portable.
+    final check = sqlite.sqlite3.open(tempPath);
+    try {
+      check.select('SELECT count(*) FROM sqlite_master;');
+      final integrity = check.select('PRAGMA integrity_check;');
+      if (integrity.length != 1 ||
+          integrity.first.values.first.toString().toLowerCase() != 'ok') {
+        throw StateError(
+          'La copie SQLite portable a échoué au contrôle d’intégrité.',
+        );
+      }
+    } finally {
+      check.close();
+    }
+    return await tempFile.readAsBytes();
+  } finally {
+    if (await tempFile.exists()) await tempFile.delete();
+  }
+}
