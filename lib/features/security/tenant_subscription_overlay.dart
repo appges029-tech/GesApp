@@ -16,6 +16,7 @@ class TenantSubscriptionOverlay extends StatefulWidget {
 class _TenantSubscriptionOverlayState extends State<TenantSubscriptionOverlay>
     with WidgetsBindingObserver {
   Timer? _timer;
+  Timer? _remoteTimer;
   bool _checking = false;
   String? _message;
 
@@ -27,11 +28,16 @@ class _TenantSubscriptionOverlayState extends State<TenantSubscriptionOverlay>
       const Duration(seconds: 15),
       (_) => unawaited(TenantSubscriptionAccess.instance.tick()),
     );
+    _remoteTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => unawaited(_refreshSilently()),
+    );
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _remoteTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -40,6 +46,16 @@ class _TenantSubscriptionOverlayState extends State<TenantSubscriptionOverlay>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(TenantSubscriptionAccess.instance.tick());
+      unawaited(_refreshSilently());
+    }
+  }
+
+  Future<void> _refreshSilently() async {
+    if (_checking || !OperatorSession.isAuthenticated) return;
+    try {
+      await TenantCloudService.instance.refreshSubscription();
+    } catch (_) {
+      // L'échéance locale reste valable sans réseau jusqu'à sa date limite.
     }
   }
 
