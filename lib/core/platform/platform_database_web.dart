@@ -12,3 +12,6 @@ Future<String> platformDatabasePath() async => 'gesapp.db';
 Future<void> preparePlatformDatabase(String path) async {}
 
 Future<void> configurePlatformDatabaseConnection(Database database) async {}
+
+Future<List<int>> readPortableDatabaseBytes(String path) async =>
+    throw UnsupportedError('Utilisez l’export JSON sur le Web.');
