@@ -18,3 +18,10 @@ Future<void> preparePlatformDatabase(String path) =>
 /// native de la connexion, avant toute lecture de schéma.
 Future<void> configurePlatformDatabaseConnection(Database database) =>
     impl.configurePlatformDatabaseConnection(database);
+
+/// Retourne une image SQLite portable. Sur Windows chiffré, une copie
+/// temporaire déchiffrée est créée uniquement en mémoire de travail/disque
+/// temporaire puis immédiatement supprimée après lecture. Le conteneur .gesbk
+/// chiffre ensuite ces octets avec le mot de passe de sauvegarde.
+Future<List<int>> readPortableDatabaseBytes(String path) =>
+    impl.readPortableDatabaseBytes(path);
