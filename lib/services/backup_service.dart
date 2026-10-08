@@ -197,7 +197,7 @@ class BackupService {
 
     Database? db;
     try {
-      db = await platformDatabaseFactory.openDatabase(databasePath, options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+      db = await _openProtectedDatabase(databasePath, readOnly: true);
       final establishments = await db.query('establishments', columns: ['id', 'logo_path']);
       for (final row in establishments) {
         final path = row['logo_path']?.toString() ?? '';
