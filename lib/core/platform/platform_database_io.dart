@@ -62,7 +62,7 @@ Future<void> configurePlatformDatabaseConnection(Database database) async {
   if (!_encryptWindowsDatabase) return;
 
   final key = _releaseDatabaseKey ??= await _loadOrCreateDatabaseKey();
-  await database.execute('PRAGMA key = "x\\'$key\\'"');
+  await database.execute("PRAGMA key = \"x'$key'\";");
   final cipher = await database.rawQuery('PRAGMA cipher_version');
   if (cipher.isEmpty ||
       cipher.first.values.every(
@@ -154,7 +154,7 @@ Future<void> _migratePlaintextDatabaseIfNeeded(
 
     final escapedPath = encryptedPath.replaceAll("'", "''");
     probe.execute(
-      'ATTACH DATABASE \\'$escapedPath\\' AS encrypted KEY "x\\'$key\\'";',
+      "ATTACH DATABASE '$escapedPath' AS encrypted KEY \"x'$key'\";",
     );
     try {
       probe.execute("SELECT sqlcipher_export('encrypted');");
@@ -207,7 +207,7 @@ Future<void> _verifyEncryptedDatabase(String path, String key) async {
     if (cipher.isEmpty) {
       throw StateError('SQLCipher indisponible pendant la vérification.');
     }
-    db.execute('PRAGMA key = "x\\'$key\\'";');
+    db.execute("PRAGMA key = \"x'$key'\";");
     db.select('SELECT count(*) FROM sqlite_master;');
     final integrity = db.select('PRAGMA integrity_check;');
     if (integrity.length != 1 ||
