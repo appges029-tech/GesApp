@@ -30,9 +30,7 @@ class TenantCloudService {
     if (normalizedEmail.isEmpty || !normalizedEmail.contains('@')) {
       throw ArgumentError('Adresse e-mail invalide.');
     }
-    if (password.length < 8) {
-      throw ArgumentError('Le mot de passe doit contenir au moins 8 caractères.');
-    }
+    _requireStrongPassword(password);
     return _client.auth.signUp(
       email: normalizedEmail,
       password: password,
@@ -159,6 +157,7 @@ class TenantCloudService {
     required String temporaryPassword,
   }) async {
     if (!OperatorSession.isAdmin) throw StateError('Réservé à l’administrateur.');
+    _requireStrongPassword(temporaryPassword);
     final response = await _client.functions.invoke(
       'admin-create-manager',
       body: {
@@ -200,6 +199,7 @@ class TenantCloudService {
 
   Future<void> resetManagerPassword(String membershipId, String temporaryPassword) async {
     if (!OperatorSession.isAdmin) throw StateError('Réservé à l’administrateur.');
+    _requireStrongPassword(temporaryPassword);
     final response = await _client.functions.invoke(
       'admin-reset-manager-password',
       body: {'membership_id': membershipId, 'temporary_password': temporaryPassword},
@@ -210,7 +210,7 @@ class TenantCloudService {
   }
 
   Future<void> changeOwnPassword(String password) async {
-    if (password.length < 8) throw ArgumentError('Le mot de passe doit contenir au moins 8 caractères.');
+    _requireStrongPassword(password);
     await _client.auth.updateUser(UserAttributes(password: password));
     await _client.rpc('mark_password_changed');
     final membership = await loadMyMembership();
@@ -283,6 +283,18 @@ class TenantCloudService {
       );
     } else {
       await security.resetPin(userId: found.first.id, newPin: password, allowAdminProvisioning: true);
+    }
+  }
+
+  void _requireStrongPassword(String value) {
+    if (value.length < 10 ||
+        !RegExp(r'[a-z]').hasMatch(value) ||
+        !RegExp(r'[A-Z]').hasMatch(value) ||
+        !RegExp(r'[0-9]').hasMatch(value)) {
+      throw ArgumentError(
+        'Le mot de passe doit contenir au moins 10 caractères, '
+        'une majuscule, une minuscule et un chiffre.',
+      );
     }
   }
 
