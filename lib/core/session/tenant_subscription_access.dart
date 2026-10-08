@@ -17,25 +17,39 @@ class TenantSubscriptionAccess {
   DateTime? _expiresAt;
   DateTime? _lastTrustedUtc;
   bool _organizationActive = false;
+  DateTime? _lastPersistedUtc;
 
   String get status => _status;
   String? get cycle => _cycle;
   DateTime? get expiresAt => _expiresAt;
   String? get organizationId => _organizationId;
 
-  bool get isAllowed {
-    if (_organizationId == null || !_organizationActive) return false;
-    // Refuser une horloge reculée après la dernière heure déjà observée.
-    final now = DateTime.now().toUtc();
-    if (_lastTrustedUtc != null &&
-        now.isBefore(_lastTrustedUtc!.subtract(const Duration(minutes: 5)))) {
+  static bool evaluate({
+    required String? organizationId,
+    required String status,
+    required bool organizationActive,
+    required DateTime? expiresAt,
+    required DateTime nowUtc,
+    required DateTime? lastTrustedUtc,
+  }) {
+    if (organizationId == null || !organizationActive) return false;
+    if (lastTrustedUtc != null &&
+        nowUtc.isBefore(lastTrustedUtc.subtract(const Duration(minutes: 5)))) {
       return false;
     }
-    if (_status == 'legacy') return true; // Migration non destructive.
-    return _status == 'active' &&
-        _expiresAt != null &&
-        now.isBefore(_expiresAt!);
+    if (status == 'legacy') return true; // Établissement antérieur à la migration.
+    return status == 'active' && expiresAt != null &&
+        nowUtc.isBefore(expiresAt);
   }
+
+  bool get isAllowed => evaluate(
+        organizationId: _organizationId,
+        status: _status,
+        organizationActive: _organizationActive,
+        expiresAt: _expiresAt,
+        nowUtc: DateTime.now().toUtc(),
+        lastTrustedUtc: _lastTrustedUtc,
+      );
 
   String get denialReason {
     if (_organizationId == null) return 'Aucun établissement reconnu.';
@@ -61,6 +75,7 @@ class TenantSubscriptionAccess {
     _cycle = null;
     _expiresAt = null;
     _lastTrustedUtc = null;
+    _lastPersistedUtc = null;
     try {
       final raw = await _storage.read(key: _key(organizationId));
       if (raw != null) {
@@ -93,8 +108,7 @@ class TenantSubscriptionAccess {
 
     // L'heure serveur peut corriger un poste mal réglé sans lever les droits
     // tant que l'application n'a pas été synchronisée.
-    final last = _lastTrustedUtc;
-    _lastTrustedUtc = last != null && last.isAfter(serverNow) ? last : serverNow;
+    _lastTrustedUtc = serverNow; // L'heure du serveur rétablit une horloge corrigée.
     _organizationId = id;
     _status = data['status']?.toString() ?? 'pending';
     _cycle = data['cycle']?.toString();
@@ -102,6 +116,7 @@ class TenantSubscriptionAccess {
     _expiresAt = DateTime.tryParse(data['expires_at']?.toString() ?? '')?.toUtc();
 
     await _persist();
+    _lastPersistedUtc = serverNow;
     changes.value++;
   }
 
@@ -127,7 +142,11 @@ class TenantSubscriptionAccess {
     final now = DateTime.now().toUtc();
     if (_lastTrustedUtc == null || now.isAfter(_lastTrustedUtc!)) {
       _lastTrustedUtc = now;
-      await _persist();
+      if (_lastPersistedUtc == null ||
+          now.difference(_lastPersistedUtc!) >= const Duration(minutes: 1)) {
+        await _persist();
+        _lastPersistedUtc = now;
+      }
     }
     changes.value++;
   }
