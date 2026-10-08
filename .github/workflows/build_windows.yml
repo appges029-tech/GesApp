@@ -18,6 +18,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Read GesApp version
+        id: app_version
+        shell: pwsh
+        run: |
+          $line = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:\s*' } | Select-Object -First 1
+          if (-not $line -or $line -notmatch '^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)') {
+            throw "Version pubspec.yaml invalide."
+          }
+          "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          "build=$($Matches[2])" >> $env:GITHUB_OUTPUT
+          Write-Host "GesApp version $($Matches[1])+$($Matches[2])"
+
       - name: Set up Flutter stable
         uses: subosito/flutter-action@v2
         with:
@@ -132,6 +144,7 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
             "/DGesAppReleaseDir=${{ steps.locate.outputs.release_dir }}" `
+            "/DMyAppVersion=${{ steps.app_version.outputs.version }}" `
             "windows\installer\gesapp_installer.iss"
 
       - name: Upload installer artifact
