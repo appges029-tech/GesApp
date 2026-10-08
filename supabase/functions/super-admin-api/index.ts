@@ -301,7 +301,9 @@ Deno.serve(async (req) => {
       const managerUsername = normalizeUser(String(body.manager_username ?? ""));
       const managerName = String(body.manager_name ?? "").trim();
       const managerPassword = String(body.manager_password ?? "");
-      const subscriptionCycle = String(body.subscription_cycle ?? "");
+      // Anciennes versions du tableau Super Admin choisissent implicitement
+      // le cycle mensuel. Les nouveaux formulaires fournissent le choix explicite.
+      const subscriptionCycle = String(body.subscription_cycle ?? "").trim() || "monthly";
       if (!["monthly","annual"].includes(subscriptionCycle)) return json(req, { error: "abonnement_invalide" }, 400);
 
       if (name.length < 3 || !adminEmail.includes("@") || adminName.length < 2 || !isStrongPassword(adminPassword)) {
