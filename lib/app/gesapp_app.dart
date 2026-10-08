@@ -7,6 +7,7 @@ import '../core/theme/theme_controller.dart';
 import '../core/theme/liquid_glass_backdrop.dart';
 import '../core/session/operator_session.dart';
 import '../features/security/tenant_access_gate.dart';
+import '../features/security/tenant_subscription_overlay.dart';
 import 'app_navigation.dart';
 
 class GesApp extends StatelessWidget {
@@ -41,6 +42,8 @@ class GesApp extends StatelessWidget {
                 ),
                 if (OperatorSession.isReadOnly)
                   const _AdminReadOnlyBadge(),
+                if (OperatorSession.organizationId != null)
+                  const TenantSubscriptionOverlay(),
               ],
             ),
           ),

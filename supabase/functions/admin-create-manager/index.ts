@@ -18,6 +18,17 @@ Deno.serve(async (req) => {
     if (userError || !user) return json({error:'unauthorized'},401)
     const {data:membership,error:memberError} = await admin.from('organization_members').select('organization_id,role,active').eq('user_id',user.id).single()
     if (memberError || !membership?.active || membership.role !== 'admin') return json({error:'admin_required'},403)
+
+    const { data: billingOrg, error: billingError } = await admin.from('organizations')
+      .select('active,subscription_status,subscription_expires_at')
+      .eq('id',membership.organization_id).single()
+    if (billingError || !billingOrg?.active ||
+        (billingOrg.subscription_status !== 'legacy' &&
+          (billingOrg.subscription_status !== 'active' ||
+            !billingOrg.subscription_expires_at ||
+            Date.parse(billingOrg.subscription_expires_at) <= Date.now()))) {
+      return json({error:'subscription_expired'},403)
+    }
     const {data:org,error:orgError} = await admin.from('organizations').select('code').eq('id',membership.organization_id).single()
     if (orgError || !org) return json({error:'organization_not_found'},404)
     const body = await req.json()

@@ -191,16 +191,17 @@ Deno.serve(async (req) => {
     }
 
     if (action === "overview") {
-      const [orgsRes, membersRes, devicesRes, syncRes, eventsRes] = await Promise.all([
-        server.from("organizations").select("id,code,name,active,created_at,updated_at").order("created_at", { ascending: false }),
+      const [orgsRes, membersRes, devicesRes, syncRes, eventsRes, requestsRes] = await Promise.all([
+        server.from("organizations").select("id,code,name,active,subscription_status,subscription_cycle,subscription_started_at,subscription_expires_at,subscription_confirmed_at,created_at,updated_at").order("created_at", { ascending: false }),
         server.from("organization_members").select("id,organization_id,user_id,role,username,display_name,active,status,must_change_password,created_at"),
         server.from("devices").select("id,organization_id,user_id,device_key,platform,app_version,last_seen_at,created_at").order("last_seen_at", { ascending: false }),
         server.from("sync_metadata").select("organization_id,revision,size_bytes,updated_at,uploaded_at,current_path"),
         server.from("platform_activity_events")
           .select("id,organization_id,actor_user_id,event_type,module,message,metadata,created_at")
           .order("created_at", { ascending: false }).limit(80),
+        server.from("admin_registration_requests").select("id,user_id,email,display_name,school_name,preferred_code,status,created_at,reviewed_at,review_note").order("created_at", { ascending: false }).limit(100),
       ]);
-      for (const result of [orgsRes, membersRes, devicesRes, syncRes, eventsRes]) {
+      for (const result of [orgsRes, membersRes, devicesRes, syncRes, eventsRes, requestsRes]) {
         if (result.error) return json(req, { error: result.error.message }, 500);
       }
       const members = membersRes.data ?? [], devices = devicesRes.data ?? [], syncs = syncRes.data ?? [];
@@ -209,7 +210,10 @@ Deno.serve(async (req) => {
         const om = members.filter((m) => m.organization_id === org.id);
         const od = devices.filter((d) => d.organization_id === org.id);
         const sync = syncs.find((s) => s.organization_id === org.id) ?? null;
+        const paidUntil = org.subscription_expires_at ? Date.parse(org.subscription_expires_at) : 0;
+        const subscriptionEffectiveStatus = !org.active ? "suspended" : org.subscription_status === "legacy" ? "legacy" : org.subscription_status === "active" && paidUntil > now ? "active" : "expired";
         return {
+          subscription_effective_status: subscriptionEffectiveStatus,
           ...org,
           admin: om.find((m) => m.role === "admin") ?? null,
           managers: om.filter((m) => m.role === "manager"),
@@ -238,8 +242,54 @@ Deno.serve(async (req) => {
           online_devices: online,
         },
         organizations,
+        pending_requests: (requestsRes.data ?? []).filter((request) => request.status === "pending"),
         recent_activity: recentActivity,
       });
+    }
+
+    if (action === "approve_request") {
+      const requestId = String(body.request_id ?? "");
+      const cycle = String(body.subscription_cycle ?? "");
+      if (!requestId || !["monthly","annual"].includes(cycle)) return json(req, { error: "demande_ou_abonnement_invalide" }, 400);
+      const { data: request, error: requestError } = await server.from("admin_registration_requests")
+        .select("id,user_id,email,status").eq("id", requestId).eq("status", "pending").maybeSingle();
+      if (requestError || !request) return json(req, { error: "demande_introuvable" }, 404);
+      const { data: profile, error: profileError } = await server.auth.admin.getUserById(request.user_id);
+      if (profileError || !profile.user || !profile.user.email_confirmed_at
+          || profile.user.email?.toLowerCase() !== request.email.toLowerCase()) {
+        return json(req, { error: "email_administrateur_non_confirme" }, 409);
+      }
+      const { data, error } = await server.rpc("admin_approve_registration", {
+        p_request_id: requestId, p_cycle: cycle, p_approver: admin.user_id,
+      });
+      if (error) return json(req, { error: error.message }, 409);
+      await server.auth.admin.updateUserById(request.user_id, {
+        app_metadata: { gesapp_role: "admin", organization_id: data.organization_id },
+      });
+      return json(req, { ok: true, organization: data });
+    }
+
+    if (action === "reject_request") {
+      const requestId = String(body.request_id ?? "");
+      if (!requestId) return json(req, { error: "demande_introuvable" }, 400);
+      const { data, error } = await server.rpc("admin_reject_registration", {
+        p_request_id: requestId, p_reviewer: admin.user_id,
+        p_note: String(body.note ?? "").slice(0, 500),
+      });
+      if (error) return json(req, { error: error.message }, 409);
+      return json(req, data);
+    }
+
+    if (action === "renew_subscription") {
+      const organizationId = String(body.organization_id ?? "");
+      const cycle = String(body.subscription_cycle ?? "");
+      if (!organizationId || !["monthly","annual"].includes(cycle)) return json(req, { error: "abonnement_invalide" }, 400);
+      const { data, error } = await server.rpc("admin_confirm_subscription", {
+        p_organization_id: organizationId, p_cycle: cycle,
+        p_approver: admin.user_id, p_reference: String(body.reference ?? "").slice(0, 200),
+      });
+      if (error) return json(req, { error: error.message }, 409);
+      return json(req, { ok: true, subscription: data });
     }
 
     if (action === "create_school") {
@@ -251,6 +301,8 @@ Deno.serve(async (req) => {
       const managerUsername = normalizeUser(String(body.manager_username ?? ""));
       const managerName = String(body.manager_name ?? "").trim();
       const managerPassword = String(body.manager_password ?? "");
+      const subscriptionCycle = String(body.subscription_cycle ?? "");
+      if (!["monthly","annual"].includes(subscriptionCycle)) return json(req, { error: "abonnement_invalide" }, 400);
 
       if (name.length < 3 || !adminEmail.includes("@") || adminName.length < 2 || !isStrongPassword(adminPassword)) {
         return json(req, { error: "donnees_ecole_ou_admin_invalides" }, 400);
@@ -330,6 +382,12 @@ Deno.serve(async (req) => {
         });
         if (managerMemberErr) throw new Error(managerMemberErr.message);
 
+        const { error: billingError } = await server.rpc("admin_confirm_subscription", {
+          p_organization_id: orgId, p_cycle: subscriptionCycle, p_approver: admin.user_id,
+          p_reference: "Création manuelle par le Super Admin",
+        });
+        if (billingError) throw new Error(billingError.message);
+
         await server.from("platform_activity_events").insert({
           organization_id: orgId,
           actor_user_id: admin.user_id,
@@ -347,6 +405,7 @@ Deno.serve(async (req) => {
         }, 201);
       } catch (e) {
         if (orgId) {
+          await server.from("subscription_payments").delete().eq("organization_id", orgId);
           await server.from("organization_members").delete().eq("organization_id", orgId);
           await server.from("sync_metadata").delete().eq("organization_id", orgId);
           await server.from("devices").delete().eq("organization_id", orgId);

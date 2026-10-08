@@ -241,8 +241,8 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
   Future<void> _administrator() async {
     final email = _adminEmail.text.trim();
     final password = _adminPassword.text;
-    if (email.isEmpty || !email.contains('@') || password.length < 8) {
-      setState(() => _error = 'Renseignez un e-mail valide et un mot de passe d’au moins 8 caractères.');
+    if (email.isEmpty || !email.contains('@') || password.length < 10) {
+      setState(() => _error = 'Renseignez un e-mail valide et un mot de passe fort d’au moins 10 caractères.');
       return;
     }
     if (_adminSignupMode && password != _adminPasswordConfirmation.text) {
@@ -349,7 +349,7 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
                       ),
                       const SizedBox(height: 20),
                       if (!_managerMode) ...[
-                        const Text('La première personne qui crée l’établissement devient Administrateur. Son adresse e-mail doit être confirmée avant la création de l’établissement. L’administrateur reste en lecture seule sur les données métier.', textAlign: TextAlign.center),
+                        const Text('Créez un accès candidat, confirmez votre e-mail puis demandez l’autorisation du Super Admin. L’établissement n’est activé qu’après validation et confirmation du paiement.', textAlign: TextAlign.center),
                         const SizedBox(height: 16),
                         SegmentedButton<bool>(
                           segments: const [
@@ -368,14 +368,14 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
                           TextField(controller: _adminPasswordConfirmation, obscureText: _obscure, decoration: const InputDecoration(labelText: 'Confirmer le mot de passe', prefixIcon: Icon(Icons.lock_reset_outlined))),
                         ],
                         const SizedBox(height: 18),
-                        FilledButton.icon(onPressed: _busy ? null : _administrator, icon: Icon(_adminSignupMode ? Icons.person_add_alt_1 : Icons.login), label: Text(_busy ? 'Traitement…' : (_adminSignupMode ? 'Créer le compte administrateur' : 'Se connecter'))),
+                        FilledButton.icon(onPressed: _busy ? null : _administrator, icon: Icon(_adminSignupMode ? Icons.person_add_alt_1 : Icons.login), label: Text(_busy ? 'Traitement…' : (_adminSignupMode ? 'Créer ma demande d’accès' : 'Se connecter'))),
                         if (_confirmationSent) ...[
                           const SizedBox(height: 14),
                           Card(
                             color: Theme.of(context).colorScheme.primaryContainer,
                             child: const Padding(
                               padding: EdgeInsets.all(14),
-                              child: Text('E-mail de confirmation envoyé. Ouvrez votre boîte mail et confirmez votre adresse. Sur Windows, la confirmation se termine dans le navigateur : revenez ensuite dans GesApp et utilisez « Se connecter ». Aucun établissement ne sera créé avant cette validation.', textAlign: TextAlign.center),
+                              child: Text('E-mail de confirmation envoyé. Ouvrez votre boîte mail et confirmez votre adresse. Sur Windows, la confirmation se termine dans le navigateur : revenez ensuite dans GesApp et utilisez « Se connecter ». La validation finale et l’activation de l’abonnement appartiennent exclusivement au Super Admin.', textAlign: TextAlign.center),
                             ),
                           ),
                           TextButton(onPressed: _busy ? null : _resendConfirmation, child: const Text('Renvoyer l’e-mail de confirmation')),
@@ -510,30 +510,63 @@ class _CreateTenantScreen extends StatefulWidget {
 class _CreateTenantScreenState extends State<_CreateTenantScreen> {
   final _name = TextEditingController();
   final _code = TextEditingController();
+  final _displayName = TextEditingController();
+  Timer? _timer;
   bool _busy = false;
+  bool _checking = false;
+  bool _loading = true;
   String? _error;
+  Map<String, dynamic>? _request;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_checkStatus());
+    _timer = Timer.periodic(const Duration(seconds: 20), (_) => unawaited(_checkStatus()));
+  }
 
   @override
   void dispose() {
+    _timer?.cancel();
     _name.dispose();
     _code.dispose();
+    _displayName.dispose();
     super.dispose();
   }
 
+  Future<void> _checkStatus() async {
+    if (_checking || !mounted) return;
+    _checking = true;
+    try {
+      final membership = await TenantCloudService.instance.loadMyMembership();
+      if (membership != null) {
+        if (mounted) widget.onCreated(membership);
+        return;
+      }
+      final request = await TenantCloudService.instance.myAdministratorRequest();
+      if (mounted) setState(() { _request = request; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    } finally {
+      _checking = false;
+    }
+  }
+
   Future<void> _create() async {
-    if (_name.text.trim().length < 3) {
-      setState(() => _error = 'Saisissez le nom complet de l’établissement.');
+    if (_name.text.trim().length < 3 || _displayName.text.trim().length < 2) {
+      setState(() => _error = 'Saisissez le nom de l’école et votre nom complet.');
       return;
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() { _busy = true; _error = null; });
     try {
-      final membership = await TenantCloudService.instance.bootstrapOrganization(name: _name.text, preferredCode: _code.text);
-      widget.onCreated(membership);
+      await TenantCloudService.instance.requestAdministratorApproval(
+        schoolName: _name.text,
+        preferredCode: _code.text,
+        displayName: _displayName.text,
+      );
+      await _checkStatus();
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Bad state: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -541,8 +574,15 @@ class _CreateTenantScreenState extends State<_CreateTenantScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final status = _request?['status']?.toString();
     return Scaffold(
-      appBar: AppBar(actions: [TextButton(onPressed: _busy ? null : () => TenantCloudService.instance.signOut(), child: const Text('Déconnexion'))]),
+      appBar: AppBar(
+        title: const Text('Inscription administrateur'),
+        actions: [
+          TextButton(onPressed: _busy ? null : () => TenantCloudService.instance.signOut(),
+              child: const Text('Déconnexion')),
+        ],
+      ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -552,18 +592,68 @@ class _CreateTenantScreenState extends State<_CreateTenantScreen> {
               padding: EdgeInsets.zero,
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Text('Créer votre établissement', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 8),
-                  const Text('Vous deviendrez automatiquement l’Administrateur propriétaire. Ce rôle est en lecture seule sur les données métier.'),
-                  const SizedBox(height: 20),
-                  TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nom de l’établissement', prefixIcon: Icon(Icons.school_outlined))),
-                  const SizedBox(height: 12),
-                  TextField(controller: _code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Code souhaité (facultatif)', hintText: 'SAINTE-JOSEPHINE', prefixIcon: Icon(Icons.tag))),
-                  const SizedBox(height: 18),
-                  FilledButton.icon(onPressed: _busy ? null : _create, icon: const Icon(Icons.add_business_rounded), label: Text(_busy ? 'Création…' : 'Créer l’établissement')),
-                  if (_error != null) ...[const SizedBox(height: 12), Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))],
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Demande d’accès GesApp',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    const Text('La création du compte Administrateur nécessite '
+                        'la validation du Super Admin et un abonnement mensuel ou annuel.'),
+                    const SizedBox(height: 20),
+                    if (_loading)
+                      const Center(child: CircularProgressIndicator())
+                    else if (status == 'pending') ...[
+                      const Icon(Icons.hourglass_top_rounded, size: 48),
+                      const SizedBox(height: 10),
+                      Text('Demande en attente de validation',
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 10),
+                      Text('Établissement : ' + (_request?['school_name']?.toString() ?? '')),
+                      const Text('Le Super Admin examinera votre demande et '
+                          'activera votre abonnement après confirmation du paiement.'),
+                    ] else ...[
+                      if (status == 'rejected') ...[
+                        Text('Votre précédente demande a été refusée.',
+                            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                        if ((_request?['review_note']?.toString() ?? '').isNotEmpty)
+                          Text(_request!['review_note'].toString()),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(controller: _displayName,
+                          decoration: const InputDecoration(
+                              labelText: 'Votre nom complet',
+                              prefixIcon: Icon(Icons.person_outline))),
+                      const SizedBox(height: 12),
+                      TextField(controller: _name,
+                          decoration: const InputDecoration(
+                              labelText: 'Nom de l’établissement',
+                              prefixIcon: Icon(Icons.school_outlined))),
+                      const SizedBox(height: 12),
+                      TextField(controller: _code,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                              labelText: 'Code souhaité (facultatif)',
+                              prefixIcon: Icon(Icons.tag))),
+                      const SizedBox(height: 18),
+                      FilledButton.icon(
+                          onPressed: _busy ? null : _create,
+                          icon: const Icon(Icons.send_rounded),
+                          label: Text(_busy ? 'Envoi…' : 'Envoyer au Super Admin')),
+                    ],
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                        onPressed: _checking ? null : _checkStatus,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Actualiser ma demande')),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_error!,
+                          style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),
