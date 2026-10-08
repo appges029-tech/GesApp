@@ -1,7 +1,7 @@
 name: gesapp
 description: Application de gestion scolaire offline-first pour les établissements congolais.
 publish_to: 'none'
-version: 2.2.3+44
+version: 2.2.4+45
 environment:
   sdk: '>=3.5.0 <4.0.0'
 
@@ -12,6 +12,7 @@ dependencies:
   sqflite: ^2.4.1
   sqflite_common: ^2.5.11
   sqflite_common_ffi: ^2.4.2+1
+  sqlite3: ^3.7.0
   sqflite_common_ffi_web: ^1.1.2
   path: ^1.9.1
   path_provider: ^2.1.5
@@ -30,6 +31,11 @@ dependencies:
   excel: ^4.0.6
   csv: ^6.0.0
   liquid_glass_widgets: ^1.10.0
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlcipher
 
 dev_dependencies:
   flutter_test:
