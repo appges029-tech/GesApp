@@ -241,8 +241,8 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
   Future<void> _administrator() async {
     final email = _adminEmail.text.trim();
     final password = _adminPassword.text;
-    if (email.isEmpty || !email.contains('@') || password.length < 8) {
-      setState(() => _error = 'Renseignez un e-mail valide et un mot de passe d’au moins 8 caractères.');
+    if (email.isEmpty || !email.contains('@') || password.length < 10) {
+      setState(() => _error = 'Renseignez un e-mail valide et un mot de passe fort d’au moins 10 caractères.');
       return;
     }
     if (_adminSignupMode && password != _adminPasswordConfirmation.text) {
@@ -349,7 +349,7 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
                       ),
                       const SizedBox(height: 20),
                       if (!_managerMode) ...[
-                        const Text('La première personne qui crée l’établissement devient Administrateur. Son adresse e-mail doit être confirmée avant la création de l’établissement. L’administrateur reste en lecture seule sur les données métier.', textAlign: TextAlign.center),
+                        const Text('Créez un accès candidat, confirmez votre e-mail puis demandez l’autorisation du Super Admin. L’établissement n’est activé qu’après validation et confirmation du paiement.', textAlign: TextAlign.center),
                         const SizedBox(height: 16),
                         SegmentedButton<bool>(
                           segments: const [
@@ -368,14 +368,14 @@ class _CloudLoginScreenState extends State<_CloudLoginScreen> {
                           TextField(controller: _adminPasswordConfirmation, obscureText: _obscure, decoration: const InputDecoration(labelText: 'Confirmer le mot de passe', prefixIcon: Icon(Icons.lock_reset_outlined))),
                         ],
                         const SizedBox(height: 18),
-                        FilledButton.icon(onPressed: _busy ? null : _administrator, icon: Icon(_adminSignupMode ? Icons.person_add_alt_1 : Icons.login), label: Text(_busy ? 'Traitement…' : (_adminSignupMode ? 'Créer le compte administrateur' : 'Se connecter'))),
+                        FilledButton.icon(onPressed: _busy ? null : _administrator, icon: Icon(_adminSignupMode ? Icons.person_add_alt_1 : Icons.login), label: Text(_busy ? 'Traitement…' : (_adminSignupMode ? 'Créer ma demande d’accès' : 'Se connecter'))),
                         if (_confirmationSent) ...[
                           const SizedBox(height: 14),
                           Card(
                             color: Theme.of(context).colorScheme.primaryContainer,
                             child: const Padding(
                               padding: EdgeInsets.all(14),
-                              child: Text('E-mail de confirmation envoyé. Ouvrez votre boîte mail et confirmez votre adresse. Sur Windows, la confirmation se termine dans le navigateur : revenez ensuite dans GesApp et utilisez « Se connecter ». Aucun établissement ne sera créé avant cette validation.', textAlign: TextAlign.center),
+                              child: Text('E-mail de confirmation envoyé. Ouvrez votre boîte mail et confirmez votre adresse. Sur Windows, la confirmation se termine dans le navigateur : revenez ensuite dans GesApp et utilisez « Se connecter ». La validation finale et l’activation de l’abonnement appartiennent exclusivement au Super Admin.', textAlign: TextAlign.center),
                             ),
                           ),
                           TextButton(onPressed: _busy ? null : _resendConfirmation, child: const Text('Renvoyer l’e-mail de confirmation')),
