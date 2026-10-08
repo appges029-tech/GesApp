@@ -53,6 +53,7 @@ class SuperAdminService {
     required String managerUsername,
     required String managerName,
     required String managerPassword,
+    required String subscriptionCycle,
   }) {
     if (!_isStrongPassword(administratorPassword) ||
         !_isStrongPassword(managerPassword)) {
@@ -71,8 +72,34 @@ class SuperAdminService {
       'manager_username': managerUsername.trim(),
       'manager_name': managerName.trim(),
       'manager_password': managerPassword,
+      'subscription_cycle': subscriptionCycle,
     });
   }
+
+  Future<Map<String, dynamic>> approveRequest(String requestId, String cycle) =>
+      _invoke({
+        'action': 'approve_request',
+        'request_id': requestId,
+        'subscription_cycle': cycle,
+      });
+
+  Future<Map<String, dynamic>> rejectRequest(String requestId, {String note = ''}) =>
+      _invoke({
+        'action': 'reject_request',
+        'request_id': requestId,
+        'note': note,
+      });
+
+  Future<Map<String, dynamic>> renewSubscription(
+    String organizationId,
+    String cycle, {
+    String reference = '',
+  }) => _invoke({
+        'action': 'renew_subscription',
+        'organization_id': organizationId,
+        'subscription_cycle': cycle,
+        'reference': reference,
+      });
 
   Future<Map<String, dynamic>> setSchoolActive(
     String organizationId,
@@ -149,6 +176,9 @@ class SuperAdminService {
       'acces_refuse' => 'Ce compte n’est pas autorisé comme Super Admin.',
       'donnees_ecole_ou_admin_invalides' =>
         'Vérifiez le nom de l’école, l’administrateur et son mot de passe.',
+      'abonnement_invalide' => 'Choisissez un abonnement mensuel ou annuel.',
+      'demande_introuvable' => 'Cette demande n’est plus disponible.',
+      'email_administrateur_non_confirme' => 'Le candidat doit confirmer son adresse e-mail.',
       'donnees_gestionnaire_invalides' =>
         'Vérifiez l’identifiant, le nom et le mot de passe du gestionnaire.',
       _ => raw,
