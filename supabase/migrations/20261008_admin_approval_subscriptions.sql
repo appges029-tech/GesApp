@@ -111,10 +111,10 @@ drop policy if exists gesapp_backup_read on storage.objects;
 create policy gesapp_backup_read on storage.objects for select to authenticated
 using (
  bucket_id='gesapp-backups'
- and (select private.is_active_member(((storage.foldername(name))[1])::uuid))
+ and (select private.is_active_member(((storage.foldername(storage.objects.name))[1])::uuid))
  and exists(
    select 1 from public.organizations o
-   where o.id=((storage.foldername(name))[1])::uuid and o.active=true
+   where o.id=((storage.foldername(storage.objects.name))[1])::uuid and o.active=true
      and (o.subscription_status='legacy'
        or (o.subscription_status='active' and o.subscription_expires_at>now()))
  )
