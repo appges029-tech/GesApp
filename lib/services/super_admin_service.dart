@@ -54,6 +54,13 @@ class SuperAdminService {
     required String managerName,
     required String managerPassword,
   }) {
+    if (!_isStrongPassword(administratorPassword) ||
+        !_isStrongPassword(managerPassword)) {
+      throw ArgumentError(
+        'Les mots de passe temporaires doivent contenir au moins 10 caractères, '
+        'avec une majuscule, une minuscule et un chiffre.',
+      );
+    }
     return _invoke({
       'action': 'create_school',
       'name': name.trim(),
@@ -117,6 +124,12 @@ class SuperAdminService {
     }
     return data;
   }
+
+  bool _isStrongPassword(String value) =>
+      value.length >= 10 &&
+      RegExp(r'[a-z]').hasMatch(value) &&
+      RegExp(r'[A-Z]').hasMatch(value) &&
+      RegExp(r'[0-9]').hasMatch(value);
 
   Map<String, dynamic> _map(dynamic value) {
     if (value is Map<String, dynamic>) return value;
