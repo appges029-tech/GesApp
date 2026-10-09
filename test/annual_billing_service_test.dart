@@ -87,9 +87,13 @@ void main() {
       where:'student_id=?',whereArgs:[id]);
     expect(state.single['status'],'pending_configuration');
     await setupCalendar();
+    // L'activation du calendrier crée immédiatement les neuf lignes.
+    // Une réconciliation supplémentaire doit rester idempotente.
+    expect((await finance.unpaidForPayer(studentId:id)).length,9);
     final result=await calendar.completePending();
-    expect(result.created,9);
-    expect(result.completed,1);
+    expect(result.created,0);
+    expect(result.completed,0);
+    expect((await finance.unpaidForPayer(studentId:id)).length,9);
     state=await AppDatabase.instance.db.query('student_billing_state',
       where:'student_id=?',whereArgs:[id]);
     expect(state.single['status'],'ready');
