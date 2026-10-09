@@ -30,7 +30,9 @@ abstract final class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: Colors.transparent,
+      scaffoldBackgroundColor: windows
+          ? (dark ? const Color(0xFF0B1420) : const Color(0xFFF3F6FA))
+          : Colors.transparent,
       canvasColor: overlaySurface,
       fontFamily: null,
       visualDensity: windows ? VisualDensity.compact : VisualDensity.standard,
@@ -71,7 +73,7 @@ abstract final class AppTheme {
         shadowColor: AppColors.navy.withValues(alpha: .10),
         margin: EdgeInsets.zero,
         color: (dark ? AppColors.darkSurface : AppColors.surface).withValues(
-          alpha: dark ? .58 : .62,
+          alpha: windows ? 1 : (dark ? .58 : .62),
         ),
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
