@@ -31,6 +31,8 @@ const List<String> gesAppPortableTables = [
   'cash_sessions',
   'cash_transfers',
   'billing_batches',
+  'billing_calendar_rules',
+  'student_billing_state',
   'recovery_actions',
   'expense_categories',
   'expenses',
