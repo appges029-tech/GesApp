@@ -633,6 +633,8 @@ class _StudentDesktopList extends StatelessWidget {
       'partial' => 'Partiel',
       'overdue' => 'En retard',
       'unpaid' => 'Impayé',
+      'pending_configuration' => 'Facturation incomplète',
+      'needs_review' => 'Facturation à vérifier',
       _ => 'Sans échéance',
     };
     return student.hasPackage ? '$label · Forfait' : label;
@@ -655,6 +657,8 @@ class _StudentCard extends StatelessWidget {
         'partial' => 'Partiel',
         'overdue' => 'En retard',
         'unpaid' => 'Impayé',
+      'pending_configuration' => 'Facturation incomplète',
+      'needs_review' => 'Facturation à vérifier',
         _ => 'Sans échéance',
       };
   @override
