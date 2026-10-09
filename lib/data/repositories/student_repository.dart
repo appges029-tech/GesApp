@@ -14,9 +14,14 @@ class StudentRepository {
   final AppDatabase _database;
   static const _uuid = Uuid();
 
+  String _todayIso() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day).toIso8601String();
+  }
+
   String _paymentStatusSql() => '''
     CASE
-      WHEN billing_state.status = 'pending_configuration' THEN 'pending_configuration'
+      WHEN billing_state.status = 'pending_configuration' AND COALESCE(ds.total_due,0) = 0 THEN 'pending_configuration'
       WHEN billing_state.status = 'needs_review' THEN 'needs_review'
       WHEN COALESCE(ds.total_due, 0) = 0 THEN 'no_due'
       WHEN COALESCE(ds.balance, 0) <= 0 THEN 'paid'
@@ -73,7 +78,7 @@ class StudentRepository {
       $where
       ORDER BY s.last_name COLLATE NOCASE, s.first_name COLLATE NOCASE
       ${limit == null ? '' : 'LIMIT ? OFFSET ?'}
-    ''', [DateTime.now().toIso8601String(), if(activeYear!=null) activeYear, ...args, if(limit!=null) limit, if(limit!=null) offset]);
+    ''', [_todayIso(), if(activeYear!=null) activeYear, ...args, if(limit!=null) limit, if(limit!=null) offset]);
     return rows.map(Student.fromMap).toList();
   }
 
@@ -105,7 +110,7 @@ class StudentRepository {
       LEFT JOIN student_billing_state billing_state ON billing_state.student_id=s.id
         AND billing_state.school_year_id=(SELECT id FROM school_years WHERE is_active=1 LIMIT 1)
       WHERE s.id = ? LIMIT 1
-    ''', [DateTime.now().toIso8601String(), if(activeYear!=null) activeYear, studentId]);
+    ''', [_todayIso(), if(activeYear!=null) activeYear, studentId]);
     if (rows.isEmpty) throw StateError('Élève introuvable.');
     return Student.fromMap(rows.first);
   }
@@ -604,7 +609,7 @@ class StudentRepository {
       FROM dues WHERE student_id = ?
         AND (package_id IS NULL OR package_id NOT IN (SELECT id FROM packages WHERE type='family'))
         ${activeYear == null ? '' : 'AND school_year_id = ?'}
-    ''', [DateTime.now().toIso8601String(), studentId, if(activeYear!=null) activeYear])).first;
+    ''', [_todayIso(), studentId, if(activeYear!=null) activeYear])).first;
     final payments = firstIntValue(await _database.db.rawQuery(
       "SELECT COUNT(*) FROM payments WHERE student_id = ? AND status = 'posted' ${activeYear == null ? '' : 'AND school_year_id = ?'}",
       [studentId, if(activeYear!=null) activeYear],
