@@ -158,4 +158,59 @@ void main() {
       throwsA(isA<FormatException>()));
   });
 
+  test('dates variables : seuls les mois choisis génèrent des échéances', () async {
+    await calendar.saveMonthlyDeadlines({
+      '2026-10':DateTime(2026,10,17),
+      '2026-12':DateTime(2026,12,5),
+    });
+    final id=await students.add(firstName:'Octave',
+      lastName:'Dates réelles',classroomId:classroomId);
+    final dues=await finance.unpaidForPayer(studentId:id);
+    expect(dues.length,2);
+    final october=dues.firstWhere((d)=>d.periodKey=='2026-10');
+    final december=dues.firstWhere((d)=>d.periodKey=='2026-12');
+    expect(october.dueDate,DateTime(2026,10,17));
+    expect(december.dueDate,DateTime(2026,12,5));
+  });
+
+  test('tarifs et calendrier activés après inscription complètent les obligations', () async {
+    final id=await students.add(firstName:'Dany',
+      lastName:'Inscrit avant dates',classroomId:classroomId);
+    expect(await finance.unpaidForPayer(studentId:id),isEmpty);
+    await calendar.saveMonthlyDeadlines({
+      '2026-11':DateTime(2026,11,14),
+    });
+    final dues=await finance.unpaidForPayer(studentId:id);
+    expect(dues.length,1);
+    expect(dues.single.periodKey,'2026-11');
+    expect(dues.single.amountDue,30000);
+    final again=await calendar.completePending(includeReady:true);
+    expect(again.created,0);
+    expect((await finance.unpaidForPayer(studentId:id)).length,1);
+  });
+
+  test('période soldée reste visible mais ne peut être encaissée deux fois', () async {
+    await calendar.saveMonthlyDeadlines({
+      '2026-10':DateTime(2026,10,17),
+      '2026-11':DateTime(2026,11,10),
+    });
+    final id=await students.add(firstName:'Zoé',
+      lastName:'Soldée',classroomId:classroomId);
+    final first=(await finance.unpaidForPayer(studentId:id)).first;
+    await AppDatabase.instance.db.update('dues',
+      {'amount_paid':30000,'status':'paid'},
+      where:'id=?',whereArgs:[first.id]);
+    final all=await finance.unpaidForPayer(studentId:id,includePaid:true);
+    final dueOnly=await finance.unpaidForPayer(studentId:id);
+    expect(all.length,2);
+    expect(dueOnly.length,1);
+    expect(all.firstWhere((x)=>x.id==first.id).balance,0);
+  });
+
+  test('un calendrier mensuel rejette une date limite hors période', () async {
+    await expectLater(calendar.saveMonthlyDeadlines({
+      '2026-10':DateTime(2026,11,1),
+    }),throwsA(isA<StateError>()));
+  });
+
 }
