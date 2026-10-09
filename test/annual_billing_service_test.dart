@@ -232,4 +232,15 @@ void main() {
     expect(dues.fold<int>(0,(sum,due)=>sum+due.balance),34000);
   });
 
+  test('génération manuelle refusée si dates mensuelles automatiques en service', () async {
+    await calendar.saveMonthlyDeadlines({
+      '2026-10':DateTime(2026,10,10),
+    });
+    await expectLater(finance.previewDues(
+      periodKey:'2026-10',periodicity:'mensuelle',
+      dueDate:DateTime(2026,10,10),
+      referenceDate:DateTime(2026,10,1)),
+      throwsA(isA<StateError>()));
+  });
+
 }
