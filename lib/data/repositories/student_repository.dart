@@ -7,6 +7,7 @@ import '../../core/session/operator_session.dart';
 import '../../core/session/business_write_guard.dart';
 import '../models/student.dart';
 import '../../services/student_bulk_import_service.dart';
+import '../../services/annual_billing_service.dart';
 
 class StudentRepository {
   StudentRepository(this._database);
@@ -15,6 +16,8 @@ class StudentRepository {
 
   String _paymentStatusSql() => '''
     CASE
+      WHEN billing_state.status = 'pending_configuration' THEN 'pending_configuration'
+      WHEN billing_state.status = 'needs_review' THEN 'needs_review'
       WHEN COALESCE(ds.total_due, 0) = 0 THEN 'no_due'
       WHEN COALESCE(ds.balance, 0) <= 0 THEN 'paid'
       WHEN COALESCE(ds.overdue_balance, 0) > 0 THEN 'overdue'
@@ -65,6 +68,8 @@ class StudentRepository {
           ${activeYear == null ? '' : 'AND school_year_id = ?'}
         GROUP BY student_id
       ) ds ON ds.student_id = s.id
+      LEFT JOIN student_billing_state billing_state ON billing_state.student_id=s.id
+        AND billing_state.school_year_id=(SELECT id FROM school_years WHERE is_active=1 LIMIT 1)
       $where
       ORDER BY s.last_name COLLATE NOCASE, s.first_name COLLATE NOCASE
       ${limit == null ? '' : 'LIMIT ? OFFSET ?'}
@@ -97,6 +102,8 @@ class StudentRepository {
           ${activeYear == null ? '' : 'AND school_year_id = ?'}
         GROUP BY student_id
       ) ds ON ds.student_id = s.id
+      LEFT JOIN student_billing_state billing_state ON billing_state.student_id=s.id
+        AND billing_state.school_year_id=(SELECT id FROM school_years WHERE is_active=1 LIMIT 1)
       WHERE s.id = ? LIMIT 1
     ''', [DateTime.now().toIso8601String(), if(activeYear!=null) activeYear, studentId]);
     if (rows.isEmpty) throw StateError('Élève introuvable.');
@@ -167,6 +174,9 @@ class StudentRepository {
           'created_at': now.toIso8601String(),
           'updated_at': now.toIso8601String(),
         });
+        await const AnnualBillingService().createForEnrollment(txn,
+          studentId: id, schoolYearId: schoolYearId,
+          classroomId: classroomId, enrolledAt: now);
       }
       await _audit(txn, 'student', id, 'create', registration);
     });
@@ -215,7 +225,12 @@ class StudentRepository {
         await txn.insert('students',{'id':id,'classroom_id':classroomId,'family_id':familyId,'registration_number':registration,'first_name':row.firstName.trim(),'last_name':row.lastName.trim(),'guardian_name':row.guardianName?.trim(),'guardian_phone':row.guardianPhone?.trim(),'gender':row.gender,'birth_date':row.birthDate?.toIso8601String(),'birth_place':row.birthPlace?.trim(),'nationality':row.nationality?.trim(),'address':row.address?.trim(),'origin_school':row.originSchool?.trim(),'status':'active','enrollment_date':now.toIso8601String(),'created_at':now.toIso8601String(),'updated_at':now.toIso8601String()});
         if((row.guardianName??'').trim().isNotEmpty) await txn.insert('student_guardians',{'id':_uuid.v4(),'student_id':id,'name':row.guardianName!.trim(),'phone':row.guardianPhone?.trim(),'relationship':'tuteur','is_primary':1,'is_financial':1,'is_emergency':1,'created_at':now.toIso8601String()});
         await txn.insert('student_status_history',{'id':_uuid.v4(),'student_id':id,'old_status':null,'new_status':'active','changed_at':now.toIso8601String(),'note':'Import massif transactionnel'});
-        if(year!=null) await txn.insert('student_enrollments',{'id':_uuid.v4(),'student_id':id,'school_year_id':year,'classroom_id':classroomId,'enrollment_type':'new','status':'active','effective_from':now.toIso8601String(),'created_at':now.toIso8601String(),'updated_at':now.toIso8601String()});
+        if(year!=null) {
+          await txn.insert('student_enrollments',{'id':_uuid.v4(),'student_id':id,'school_year_id':year,'classroom_id':classroomId,'enrollment_type':'new','status':'active','effective_from':now.toIso8601String(),'created_at':now.toIso8601String(),'updated_at':now.toIso8601String()});
+          await const AnnualBillingService().createForEnrollment(txn,
+            studentId: id, schoolYearId: year,
+            classroomId: classroomId, enrolledAt: now);
+        }
       }
       await _audit(txn,'student_import',now.millisecondsSinceEpoch.toString(),'bulk_import_transactional','imported=${validRows.length}/skipped=${preview.skipped}');
     });
@@ -242,7 +257,15 @@ class StudentRepository {
       if(old.isEmpty) throw StateError('Élève introuvable.');
       if(old.first['classroom_id'] != classroomId) await _ensureClassroomCapacity(txn,classroomId,excludingStudentId:studentId);
       await txn.update('students', {'first_name':first,'last_name':last,'classroom_id':classroomId,'family_id':familyId,'guardian_name':guardianName?.trim(),'guardian_phone':guardianPhone?.trim(),'gender':gender,'birth_date':birthDate?.toIso8601String(),'birth_place':birthPlace?.trim(),'nationality':nationality?.trim(),'address':address?.trim(),'origin_school':originSchool?.trim(),'updated_at':now}, where:'id = ?',whereArgs:[studentId]);
-      final year=await _activeSchoolYearId(txn); if(year!=null) await txn.update('student_enrollments',{'classroom_id':classroomId,'updated_at':now},where:'student_id = ? AND school_year_id = ?',whereArgs:[studentId,year]);
+      final year=await _activeSchoolYearId(txn);
+      if(year!=null) {
+        await txn.update('student_enrollments',{'classroom_id':classroomId,'updated_at':now},where:'student_id = ? AND school_year_id = ?',whereArgs:[studentId,year]);
+        if(old.first['classroom_id'] != classroomId || old.first['family_id'] != familyId) {
+          await txn.update('student_billing_state',
+            {'status':'needs_review','details':'Classe ou famille modifiée : vérifier les échéances futures.','updated_at':now},
+            where:'student_id=? AND school_year_id=?',whereArgs:[studentId,year]);
+        }
+      }
       await txn.delete('student_guardians',where:'student_id = ? AND is_primary = 1',whereArgs:[studentId]);
       if((guardianName??'').trim().isNotEmpty) await txn.insert('student_guardians',{'id':_uuid.v4(),'student_id':studentId,'name':guardianName!.trim(),'phone':guardianPhone?.trim(),'relationship':'tuteur','is_primary':1,'is_financial':1,'is_emergency':1,'created_at':now});
       await _audit(txn,'student',studentId,'update_identity','${old.first['last_name']} ${old.first['first_name']} -> $last $first');
@@ -303,6 +326,9 @@ class StudentRepository {
       // Le statut métier courant est désormais `active`; le fait qu'il
       // s'agisse d'une réinscription vit dans enrollment_type.
       await txn.update('students', {'classroom_id': classroomId, 'status': 'active', 'updated_at': now.toIso8601String()}, where: 'id = ?', whereArgs: [studentId]);
+      await const AnnualBillingService().createForEnrollment(txn,
+        studentId: studentId, schoolYearId: schoolYearId,
+        classroomId: classroomId, enrolledAt: now);
       await txn.insert('student_status_history', {
         'id': _uuid.v4(), 'student_id': studentId, 'old_status': oldStatus, 'new_status': 'active',
         'changed_at': now.toIso8601String(), 'note': 'Réinscription annuelle',
@@ -330,6 +356,9 @@ class StudentRepository {
           'observations': note?.trim().isNotEmpty == true ? note!.trim() : 'Changement de classe',
           'updated_at': now.toIso8601String(),
         }, where: 'student_id = ? AND school_year_id = ?', whereArgs: [studentId, schoolYearId]);
+        await txn.update('student_billing_state',
+          {'status':'needs_review','details':'Changement de classe : réconciliation financière requise.','updated_at':now.toIso8601String()},
+          where:'student_id=? AND school_year_id=?',whereArgs:[studentId,schoolYearId]);
         await txn.insert('student_class_movements', {
           'id':_uuid.v4(),'student_id':studentId,'school_year_id':schoolYearId,
           'from_classroom_id':oldClassroom,'to_classroom_id':classroomId,
@@ -359,6 +388,11 @@ class StudentRepository {
           'observations': note?.trim(),
           'updated_at': now,
         }, where: 'student_id = ? AND school_year_id = ?', whereArgs: [studentId, schoolYearId]);
+      }
+      if(schoolYearId!=null && {'transfere','exclu','abandon'}.contains(normalizedStatus)) {
+        await txn.update('student_billing_state',
+          {'status':'needs_review','details':'Départ de l’élève : traitement manuel des échéances futures requis.','updated_at':now},
+          where:'student_id=? AND school_year_id=?',whereArgs:[studentId,schoolYearId]);
       }
       await txn.insert('student_status_history', {'id': _uuid.v4(), 'student_id': studentId, 'old_status': oldStatus, 'new_status': normalizedStatus, 'changed_at': now, 'note': note?.trim()});
       await _audit(txn, 'student', studentId, 'status_change', '$oldStatus -> $status${note == null ? '' : ' / $note'}');
