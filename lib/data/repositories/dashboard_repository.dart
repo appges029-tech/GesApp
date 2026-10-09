@@ -11,6 +11,7 @@ class DashboardRepository {
     final db = _database.db;
     final now = DateTime.now();
     final nowIso = now.toIso8601String();
+    final todayIso = DateTime(now.year, now.month, now.day).toIso8601String();
     final monthStart = DateTime(now.year, now.month, 1).toIso8601String();
     final nextMonth = DateTime(now.year, now.month + 1, 1).toIso8601String();
 
@@ -51,7 +52,7 @@ class DashboardRepository {
     final overdueBalance = await scalar(
       "SELECT COALESCE(SUM(amount_due-amount_paid),0) FROM dues "
       "WHERE status!='paid' AND due_date IS NOT NULL AND due_date < ?$dueYearClause",
-      dueArgs,
+      yearId == null ? <Object?>[todayIso] : <Object?>[todayIso, yearId],
     );
 
     final futureArgs = yearId == null ? <Object?>[nowIso] : <Object?>[nowIso, yearId];
