@@ -659,15 +659,15 @@ class FinanceRepository {
 
   Future<List<Map<String,Object?>>> paymentMethods() => _database.db.query('payment_methods', where:'active = 1', orderBy:'name');
   Future<List<Map<String,Object?>>> cashAccounts() => _database.db.query('cash_accounts', where:'active = 1', orderBy:'name');
-  Future<List<DueItem>> unpaidForPayer({String? studentId,String? familyId}) async {
+  Future<List<DueItem>> unpaidForPayer({String? studentId,String? familyId,bool includePaid=false}) async {
     final yearId = await _activeSchoolYearId(_database.db);
     final yearSql = yearId == null ? '' : ' AND d.school_year_id = ?';
-    final payerArgs = <Object?>[studentId ?? familyId];
+    final payerArgs = <Object?>[studentId ?? familyId, includePaid ? 1 : 0];
     if (yearId != null) payerArgs.add(yearId);
     final rows = studentId != null
-      ? await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.student_id=? AND d.status!='paid' AND (d.package_id IS NULL OR d.package_id NOT IN (SELECT id FROM packages WHERE type='family'))$yearSql ORDER BY d.due_date,d.created_at",payerArgs)
-      : await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.family_id=? AND d.status!='paid'$yearSql ORDER BY d.due_date,d.created_at",payerArgs);
-    return rows.map((r)=>DueItem(id:r['id'] as String,studentId:r['student_id'] as String,studentName:r['student_name'] as String,feeName:r['fee_name'] as String,periodKey:r['period_key'] as String,amountDue:r['amount_due'] as int,amountPaid:r['amount_paid'] as int,status:r['status'] as String,dueDate:r['due_date']==null?null:DateTime.parse(r['due_date'] as String))).toList();
+      ? await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.student_id=? AND ( ? = 1 OR d.status!='paid') AND (d.package_id IS NULL OR d.package_id NOT IN (SELECT id FROM packages WHERE type='family'))$yearSql ORDER BY d.due_date,d.created_at",payerArgs)
+      : await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.family_id=? AND ( ? = 1 OR d.status!='paid')$yearSql ORDER BY d.due_date,d.created_at",payerArgs);
+    return rows.map((r)=>DueItem(id:r['id'] as String,studentId:r['student_id'] as String,studentName:r['student_name'] as String,feeName:r['fee_name'] as String,feeId:r['fee_id'] as String,periodKey:r['period_key'] as String,amountDue:r['amount_due'] as int,amountPaid:r['amount_paid'] as int,status:r['status'] as String,dueDate:r['due_date']==null?null:DateTime.parse(r['due_date'] as String))).toList();
   }
   Future<int> availableCredit({String? studentId,String? familyId}) async => firstIntValue(await _database.db.rawQuery("SELECT COALESCE(SUM(amount),0) FROM payer_credits WHERE status='available' AND ${studentId!=null?'student_id':'family_id'} = ?",[studentId??familyId]))??0;
 
