@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/windows/windows_page_scaffold.dart';
+import '../../core/windows/windows_panels.dart';
+import '../../core/windows/windows_ui.dart';
 import '../../services/receipt_printer.dart';
 import '../../services/receipt_printing_preferences.dart';
 import '../../services/receipt_service.dart';
@@ -409,13 +412,17 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     final families = ref.watch(familiesProvider);
     final cycles = ref.watch(cyclesProvider);
     final classrooms = ref.watch(classroomsProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Enregistrer un paiement')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
+    final content = Form(
+      key: _formKey,
+      child: LayoutBuilder(builder: (context, viewport) {
+        final desktopForm = WindowsUi.isDesktop(context) &&
+            viewport.maxWidth >= 860;
+        final selectors = <Widget>[
+          if (desktopForm) ...[
+            Text('Sélection du payeur',
+              style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 14),
+          ],
             SegmentedButton<_PayerType>(
               segments: const [
                 ButtonSegment(
@@ -539,7 +546,13 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 loading: () => const LinearProgressIndicator(),
                 error: (error, _) => Text('$error'),
               ),
-            const SizedBox(height: 12),
+        ];
+        final checkout = <Widget>[
+          if (desktopForm) ...[
+            Text('Détails du règlement',
+              style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 14),
+          ],
             if (_loadingBalance)
               const LinearProgressIndicator()
             else if (_outstanding != null)
@@ -720,9 +733,52 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 _saving ? 'Enregistrement…' : 'Valider le paiement',
               ),
             ),
+        ];
+        if (!desktopForm) {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [...selectors, const SizedBox(height: 12), ...checkout],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 6,
+              child: WindowsPanel(
+                padding: EdgeInsets.zero,
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: selectors,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 5,
+              child: WindowsPanel(
+                padding: EdgeInsets.zero,
+                child: ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: checkout,
+                ),
+              ),
+            ),
           ],
-        ),
-      ),
+        );
+      }),
+    );
+    if (WindowsUi.isDesktop(context)) {
+      return WindowsPageScaffold(
+        title: 'Enregistrer un paiement',
+        subtitle: 'Cycle, classe, élève, rubrique, période puis encaissement',
+        maxWidth: 1460,
+        body: content,
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('Enregistrer un paiement')),
+      body: content,
     );
   }
 }
