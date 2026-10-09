@@ -249,7 +249,9 @@ class FinanceRepository {
     final schoolYearId = schoolYear['id'] as String;
     final managed = await db.query('billing_calendar_rules', columns:['id'],
         where:'school_year_id=? AND enabled=1', whereArgs:[schoolYearId], limit:1);
-    if (managed.isNotEmpty) {
+    final monthlyDates = await db.query('app_settings', columns:['key'],
+        where:'key=?',whereArgs:['billing_month_deadlines:' + schoolYearId],limit:1);
+    if (managed.isNotEmpty || monthlyDates.isNotEmpty) {
       throw StateError('Cette année scolaire possède un calendrier automatique. Utilisez « Calendrier de facturation » pour compléter les échéanciers sans doublons.');
     }
     final students = await db.rawQuery('''
@@ -378,7 +380,9 @@ class FinanceRepository {
     final schoolYearId = schoolYear['id'] as String;
     final managed = await db.query('billing_calendar_rules', columns:['id'],
         where:'school_year_id=? AND enabled=1', whereArgs:[schoolYearId], limit:1);
-    if (managed.isNotEmpty) {
+    final monthlyDates = await db.query('app_settings', columns:['key'],
+        where:'key=?',whereArgs:['billing_month_deadlines:' + schoolYearId],limit:1);
+    if (managed.isNotEmpty || monthlyDates.isNotEmpty) {
       throw StateError('Cette année scolaire possède un calendrier automatique. Utilisez « Calendrier de facturation » pour compléter les échéanciers sans doublons.');
     }
     final schoolYearStart = DateTime.parse(schoolYear['start_date'] as String);
