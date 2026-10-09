@@ -244,13 +244,15 @@ class BillingCalendarRepository {
     final yearId = y['id'] as String;
     final fees = await db.rawQuery('''
       SELECT f.id fee_id, f.name fee_name, f.periodicity,
+        CASE WHEN EXISTS(SELECT 1 FROM app_settings a WHERE a.key=?)
+          THEN 1 ELSE 0 END monthly_configured,
         r.id rule_id, r.start_date, r.end_date, r.due_day,
         r.admission_policy, r.grace_days, r.enabled
       FROM fee_categories f
       LEFT JOIN billing_calendar_rules r ON r.fee_id=f.id
         AND r.school_year_id=?
       WHERE f.active=1 ORDER BY f.name
-    ''', [yearId]);
+    ''', ['billing_month_deadlines:' + yearId, yearId]);
     return BillingCalendarConfiguration(
       yearId, y['label'] as String,
       DateTime.parse(y['start_date'] as String),
