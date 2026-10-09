@@ -81,6 +81,7 @@ void main() {
     expect(find.byType(Material), findsWidgets);
     expect(find.byType(WindowsPanel), findsOneWidget);
     expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('Windows finances prioritize everyday operations on a 1366px display', (tester) async {
@@ -97,6 +98,7 @@ void main() {
     expect(find.text('Opérations quotidiennes'), findsOneWidget);
     expect(find.text('Encaisser un paiement'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('Windows desktop header works at 125 percent screen scaling', (tester) async {
@@ -117,5 +119,6 @@ void main() {
     expect(find.text('Échéances'), findsOneWidget);
     expect(find.text('Opérations de paiement'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
 }
