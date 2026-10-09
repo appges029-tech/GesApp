@@ -355,7 +355,9 @@ class _PaymentsDesktopList extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return WindowsPanel(
       padding: EdgeInsets.zero,
-      child: Column(
+      child: WindowsAdaptiveTable(
+        minWidth: 1080,
+        child: Column(
         children: [
           Container(
             height: 40,
@@ -419,6 +421,7 @@ class _PaymentsDesktopList extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
