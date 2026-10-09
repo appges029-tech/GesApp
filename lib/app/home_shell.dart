@@ -297,9 +297,11 @@ class _WindowsNavigationPane extends StatelessWidget {
     return SafeArea(
       child: SizedBox(
         width: width,
-        child: GlassCard(
-          padding: EdgeInsets.zero,
-          quality: GlassQuality.standard,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            border: Border(right: BorderSide(color: scheme.outlineVariant)),
+          ),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
@@ -372,6 +374,16 @@ class _WindowsNavigationPane extends StatelessWidget {
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     children: [
+                      if (expanded)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                          child: Text('ESPACE DE TRAVAIL',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w700, letterSpacing: 1.1,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
                       for (var i = 0; i < entries.length - 1; i++)
                         _WindowsNavItem(
                           entry: entries[i],
@@ -417,7 +429,7 @@ class _WindowsNavItem extends StatelessWidget {
       child: Tooltip(
         message: expanded ? '' : entry.label,
         child: Material(
-          color: selected ? scheme.primaryContainer.withValues(alpha: .62) : Colors.transparent,
+          color: selected ? scheme.primaryContainer.withValues(alpha: .65) : Colors.transparent,
           borderRadius: BorderRadius.circular(7),
           child: InkWell(
             borderRadius: BorderRadius.circular(7),

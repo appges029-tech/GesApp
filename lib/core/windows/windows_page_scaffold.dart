@@ -48,10 +48,13 @@ class WindowsPageScaffold extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            GlassCard(
-              padding: EdgeInsets.zero,
-              quality: GlassQuality.standard,
-              child: ConstrainedBox(
+            Material(
+              color: scheme.surface,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+                ),
+                child: ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 74),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(28, 16, 20, 14),
@@ -103,6 +106,7 @@ class WindowsPageScaffold extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
               ),
             ),
             const SizedBox(height: 8),
