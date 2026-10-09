@@ -284,131 +284,7 @@ class BillingCalendarRepository {
     final periodEnd = DateTime(data.end.year, data.end.month);
     final ordered = <String, String>{};
     for (final entry in dates.entries) {
-      if (!RegExp(r'^\d{4}-(0[1-9]|1[0-2])
-    required String feeId, required DateTime startDate,
-    required DateTime endDate, required int dueDay,
-    required String admissionPolicy, required int graceDays,
-  }) async {
-    BusinessWriteGuard.ensureAllowed('billing.calendar.manage');
-    final data = await load();
-    DateTime day(DateTime d) => DateTime(d.year, d.month, d.day);
-    final start = day(startDate), end = day(endDate);
-    if (start.isBefore(day(data.start)) || end.isAfter(day(data.end)) ||
-        end.isBefore(start)) {
-      throw StateError('La période facturable doit rester dans l’année scolaire.');
-    }
-    if (dueDay < 1 || dueDay > 31) {
-      throw ArgumentError('Le jour de paiement doit être compris entre 1 et 31.');
-    }
-    if (graceDays < 0 || graceDays > 90) {
-      throw ArgumentError('Le délai d’admission doit être de 0 à 90 jours.');
-    }
-    if (!const {'current_period','next_period'}.contains(admissionPolicy)) {
-      throw ArgumentError('Règle d’admission invalide.');
-    }
-    if (!data.fees.any((fee) => fee['fee_id'] == feeId)) {
-      throw StateError('Type de frais inexistant ou désactivé.');
-    }
-    final now = DateTime.now().toIso8601String();
-    await _database.db.transaction((tx) async {
-      final rows = await tx.query('billing_calendar_rules',
-        columns: ['id'], where: 'school_year_id=? AND fee_id=?',
-        whereArgs: [data.yearId, feeId], limit: 1);
-      final values = <String, Object?> {
-        'start_date': start.toIso8601String(),
-        'end_date': end.toIso8601String(),
-        'due_day': dueDay,
-        'admission_policy': admissionPolicy,
-        'grace_days': graceDays,
-        'enabled': 1,
-        'updated_at': now,
-      };
-      if (rows.isEmpty) {
-        await tx.insert('billing_calendar_rules', {
-          'id': _uuid.v4(), 'school_year_id': data.yearId,
-          'fee_id': feeId, ...values, 'created_at': now,
-        });
-      } else {
-        await tx.update('billing_calendar_rules', values,
-          where: 'id=?', whereArgs: [rows.first['id']]);
-      }
-      await tx.insert('audit_log', {
-        'entity_type': 'billing_rule', 'entity_id': feeId,
-        'action': rows.isEmpty ? 'create' : 'update',
-        'new_value': data.yearId + '/' + start.toIso8601String() +
-            '/' + end.toIso8601String() + '/' + dueDay.toString() +
-            '/' + admissionPolicy,
-        'operator_name': OperatorSession.current,
-        'operator_id': OperatorSession.userId,
-        'operator_role': OperatorSession.role,
-        'created_at': now,
-      });
-    });
-  }
-
-  /// Analyse le nombre de dossiers sans calendrier fiable; ne modifie rien.
-  Future<int> pendingEnrollmentCount() async {
-    final data = await load();
-    final rows = await _database.db.rawQuery('''
-      SELECT COUNT(*) count FROM student_enrollments e
-      LEFT JOIN student_billing_state b ON b.student_id=e.student_id
-        AND b.school_year_id=e.school_year_id
-      WHERE e.school_year_id=? AND e.status='active'
-        AND (b.status IS NULL OR b.status='pending_configuration')
-    ''', [data.yearId]);
-    return (rows.first['count'] as int?) ?? 0;
-  }
-
-  /// Reprise contrôlée des inscriptions historiques ou incomplètes.
-  /// Le gestionnaire confirme d'abord la simulation; les états 'needs_review'
-  /// ne sont jamais traités automatiquement.
-  Future<BillingRepairResult> completePending({bool includeReady = false}) async {
-    BusinessWriteGuard.ensureAllowed('billing.calendar.repair');
-    final data = await load();
-    final rows = await _database.db.rawQuery('''
-      SELECT e.student_id,e.school_year_id,e.classroom_id,e.effective_from
-      FROM student_enrollments e
-      LEFT JOIN student_billing_state b ON b.student_id=e.student_id
-        AND b.school_year_id=e.school_year_id
-      WHERE e.school_year_id=? AND e.status='active'
-        AND (b.status IS NULL OR b.status='pending_configuration' ${includeReady ? "OR b.status='ready'" : ""})
-      ORDER BY e.student_id
-    ''', [data.yearId]);
-    var created = 0, completed = 0, pending = 0;
-    final failed = <String>[];
-    for (final row in rows) {
-      try {
-        final result = await _database.db.transaction((tx) =>
-            const AnnualBillingService().createForEnrollment(tx,
-              studentId: row['student_id'] as String,
-              schoolYearId: row['school_year_id'] as String,
-              classroomId: row['classroom_id'] as String,
-              enrolledAt: DateTime.parse(row['effective_from'] as String)));
-        created += result.created;
-        if (result.status == 'ready') { completed++; } else { pending++; }
-      } catch (error) {
-        failed.add((row['student_id'] as String) + ' : ' + error.toString());
-      }
-    }
-    return BillingRepairResult(created, completed, pending, failed);
-  }
-}
-
-class BillingCalendarConfiguration {
-  const BillingCalendarConfiguration(
-      this.yearId, this.label, this.start, this.end, this.fees);
-  final String yearId, label;
-  final DateTime start, end;
-  final List<Map<String, Object?>> fees;
-}
-
-class BillingRepairResult {
-  const BillingRepairResult(
-      this.created, this.completed, this.pending, this.errors);
-  final int created, completed, pending;
-  final List<String> errors;
-}
-).hasMatch(entry.key)) {
+      if (!RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(entry.key)) {
         throw StateError('Période mensuelle invalide.');
       }
       final parts = entry.key.split('-');
@@ -525,7 +401,7 @@ class BillingRepairResult {
   /// Reprise contrôlée des inscriptions historiques ou incomplètes.
   /// Le gestionnaire confirme d'abord la simulation; les états 'needs_review'
   /// ne sont jamais traités automatiquement.
-  Future<BillingRepairResult> completePending() async {
+  Future<BillingRepairResult> completePending({bool includeReady = false}) async {
     BusinessWriteGuard.ensureAllowed('billing.calendar.repair');
     final data = await load();
     final rows = await _database.db.rawQuery('''
@@ -534,7 +410,8 @@ class BillingRepairResult {
       LEFT JOIN student_billing_state b ON b.student_id=e.student_id
         AND b.school_year_id=e.school_year_id
       WHERE e.school_year_id=? AND e.status='active'
-        AND (b.status IS NULL OR b.status='pending_configuration')
+        AND (b.status IS NULL OR b.status='pending_configuration'
+          ${includeReady ? "OR b.status='ready'" : ""})
       ORDER BY e.student_id
     ''', [data.yearId]);
     var created = 0, completed = 0, pending = 0;
