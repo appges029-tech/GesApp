@@ -362,7 +362,7 @@ class BillingCalendarRepository {
   /// Reprise contrôlée des inscriptions historiques ou incomplètes.
   /// Le gestionnaire confirme d'abord la simulation; les états 'needs_review'
   /// ne sont jamais traités automatiquement.
-  Future<BillingRepairResult> completePending() async {
+  Future<BillingRepairResult> completePending({bool includeReady = false}) async {
     BusinessWriteGuard.ensureAllowed('billing.calendar.repair');
     final data = await load();
     final rows = await _database.db.rawQuery('''
@@ -371,7 +371,7 @@ class BillingCalendarRepository {
       LEFT JOIN student_billing_state b ON b.student_id=e.student_id
         AND b.school_year_id=e.school_year_id
       WHERE e.school_year_id=? AND e.status='active'
-        AND (b.status IS NULL OR b.status='pending_configuration')
+        AND (b.status IS NULL OR b.status='pending_configuration' ${includeReady ? "OR b.status='ready'" : ""})
       ORDER BY e.student_id
     ''', [data.yearId]);
     var created = 0, completed = 0, pending = 0;
@@ -441,6 +441,9 @@ class BillingRepairResult {
         'created_at':now,
       });
     });
+    // L'enregistrement des dates actives complète les échéanciers encore
+    // manquants. Les paiements et les lignes déjà présentes sont intacts.
+    await completePending(includeReady: true);
   }
 
   Future<void> saveRule({
@@ -503,6 +506,7 @@ class BillingRepairResult {
         'created_at': now,
       });
     });
+    await completePending(includeReady: true);
   }
 
   /// Analyse le nombre de dossiers sans calendrier fiable; ne modifie rien.
