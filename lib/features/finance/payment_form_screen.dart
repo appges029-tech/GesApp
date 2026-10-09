@@ -96,6 +96,13 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   }
 
 
+  String _periodDeadline(DueItem due) {
+    if (due.dueDate == null) return ' · Date limite à configurer';
+    final d = due.dueDate!;
+    return ' · Limite : ' + d.day.toString().padLeft(2, '0') + '/' +
+        d.month.toString().padLeft(2, '0') + '/' + d.year.toString();
+  }
+
   int get _selectedRemaining => _payerDues
       .where((due) => _selectedDues.contains(due.id))
       .fold<int>(0, (total, due) => total + due.balance);
@@ -416,24 +423,85 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               },
             ),
             const SizedBox(height: 12),
-            if (_payerType == _PayerType.student)
-              students.when(
-                data: (items) => _StudentSearchField(
-                  students: items,
-                  selectedId: _studentId,
-                  onSelected: (student) {
+            if (_payerType == _PayerType.student) ...[
+              cycles.when(
+                data: (items) => DropdownButtonFormField<String>(
+                  key: const ValueKey('payment_cycle'),
+                  initialValue: items.any((c) => c['id'] == _cycleId) ? _cycleId : null,
+                  decoration: const InputDecoration(
+                    labelText: '1. Cycle *', prefixIcon: Icon(Icons.school_outlined)),
+                  items: items.map((c) => DropdownMenuItem(
+                    value: c['id'] as String, child: Text(c['name'] as String))).toList(),
+                  onChanged: (cycle) {
                     setState(() {
-                      _studentId = student?.id;
+                      _cycleId = cycle;
+                      _classroomId = null;
+                      _studentId = null;
+                      _payerDues = const [];
+                      _selectedDues.clear();
+                      _feeId = null;
                       _outstanding = null;
                       _amount.clear();
                     });
-                    _loadOutstanding();
                   },
                 ),
                 loading: () => const LinearProgressIndicator(),
                 error: (error, _) => Text('$error'),
-              )
-            else
+              ),
+              const SizedBox(height: 12),
+              if (_cycleId != null) classrooms.when(
+                data: (items) {
+                  final filtered = items.where((c) => c.cycleId == _cycleId).toList();
+                  return DropdownButtonFormField<String>(
+                    key: ValueKey('payment_class_${_cycleId}'),
+                    initialValue: filtered.any((c) => c.id == _classroomId)
+                        ? _classroomId : null,
+                    decoration: const InputDecoration(
+                      labelText: '2. Classe / salle *',
+                      prefixIcon: Icon(Icons.meeting_room_outlined)),
+                    items: filtered.map((c) => DropdownMenuItem(
+                      value: c.id, child: Text(c.name))).toList(),
+                    onChanged: (id) {
+                      setState(() {
+                        _classroomId = id;
+                        _studentId = null;
+                        _payerDues = const [];
+                        _selectedDues.clear();
+                        _feeId = null;
+                        _outstanding = null;
+                        _amount.clear();
+                      });
+                    },
+                  );
+                },
+                loading: () => const LinearProgressIndicator(),
+                error: (error, _) => Text('$error'),
+              ),
+              if (_classroomId != null) ...[
+                const SizedBox(height: 12),
+                students.when(
+                  data: (items) => _StudentSearchField(
+                    key: ValueKey('payment_student_${_cycleId}_${_classroomId}'),
+                    students: items.where((s) =>
+                      s.cycleId == _cycleId && s.classroomId == _classroomId).toList(),
+                    selectedId: _studentId,
+                    onSelected: (student) {
+                      setState(() {
+                        _studentId = student?.id;
+                        _outstanding = null;
+                        _amount.clear();
+                        _payerDues = const [];
+                        _selectedDues.clear();
+                        _feeId = null;
+                      });
+                      _loadOutstanding();
+                    },
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, _) => Text('$error'),
+                ),
+              ],
+            ] else
               families.when(
                 data: (items) => items.isEmpty
                     ? const Text(
@@ -498,11 +566,62 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            if (_payerDues.isNotEmpty) ...[
-              Text('Échéances à régler',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
-              const SizedBox(height:6),
-              ..._payerDues.map((d)=>CheckboxListTile(dense:true,contentPadding:EdgeInsets.zero,value:_selectedDues.contains(d.id),title:Text('${d.feeName} · ${d.periodKey}'),subtitle:Text('Reste ${formatXaf(d.amountDue-d.amountPaid)}'),onChanged:(v)=>setState(()=>v==true?_selectedDues.add(d.id):_selectedDues.remove(d.id)))),
-              const SizedBox(height:8),
+            if (_payerType == _PayerType.student && _studentId != null &&
+                !_loadingBalance && _payerDues.isEmpty)
+              const Card(child: ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('Aucune échéance disponible'),
+                subtitle: Text('Vérifiez les tarifs et les dates limites configurées. '
+                    'Aucune dette n’est créée lors de l’encaissement.'))),
+            if (_payerType == _PayerType.student && _payerDues.isNotEmpty) ...[
+              Text('4. Rubrique à payer',
+                style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                key: ValueKey('payment_fee_${_studentId}_${_payerDues.length}'),
+                initialValue: _payerDues.any((d) => d.feeId == _feeId)
+                    ? _feeId : null,
+                decoration: const InputDecoration(
+                  labelText: 'Rubrique', prefixIcon: Icon(Icons.category_outlined)),
+                items: {
+                  for (final due in _payerDues) due.feeId!: due.feeName,
+                }.entries.map((entry) => DropdownMenuItem(
+                  value: entry.key, child: Text(entry.value))).toList(),
+                onChanged: _saving ? null : _chooseRubric,
+              ),
+              if (_feeId != null) ...[
+                const SizedBox(height: 12),
+                Text('5. Mois / trimestre / période',
+                  style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                ..._payerDues.where((due) => due.feeId == _feeId).map((due) =>
+                  CheckboxListTile(
+                    dense: true, contentPadding: EdgeInsets.zero,
+                    value: _selectedDues.contains(due.id),
+                    onChanged: due.balance <= 0 || _saving
+                        ? null : (v) => _chooseDue(due, v == true),
+                    title: Text(due.periodKey + (due.balance <= 0 ? ' · Soldé' : '')),
+                    subtitle: Text('Tarif : ${formatXaf(due.amountDue)} · '
+                      'Déjà payé : ${formatXaf(due.amountPaid)} · '
+                      'Reste : ${formatXaf(due.balance)}'
+                      '${_periodDeadline(due)}'),
+                  )),
+              ],
+              Card(child: ListTile(
+                title: const Text('Total des périodes sélectionnées'),
+                trailing: Text(formatXaf(_selectedRemaining),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              )),
+            ] else if (_payerType == _PayerType.family && _payerDues.isNotEmpty) ...[
+              Text('Échéances de la famille',
+                  style: Theme.of(context).textTheme.titleMedium),
+              ..._payerDues.map((d) => CheckboxListTile(
+                dense: true, contentPadding: EdgeInsets.zero,
+                value: _selectedDues.contains(d.id),
+                title: Text('${d.studentName} · ${d.feeName} · ${d.periodKey}'),
+                subtitle: Text('Reste ${formatXaf(d.balance)}'),
+                onChanged: (v) => _chooseDueFamily(d, v == true),
+              )),
             ],
             TextFormField(
               controller: _amount,
@@ -578,7 +697,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             ),
             const SizedBox(height: 22),
             FilledButton.icon(
-              onPressed: _saving ? null : _save,
+              onPressed: _saving || _loadingBalance || _selectedDues.isEmpty ? null : _save,
               icon: const Icon(Icons.check_circle_outline),
               label: Text(
                 _saving ? 'Enregistrement…' : 'Valider le paiement',
