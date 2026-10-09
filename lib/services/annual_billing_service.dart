@@ -53,11 +53,9 @@ class AnnualBillingService {
       SELECT DISTINCT f.id, f.name, f.periodicity FROM fee_categories f
       LEFT JOIN fee_grid g ON g.fee_id=f.id
         AND (g.classroom_id=? OR (g.classroom_id IS NULL AND g.cycle_id=?))
-      LEFT JOIN billing_calendar_rules r ON r.fee_id=f.id
-        AND r.school_year_id=? AND r.enabled=1
-      WHERE f.active=1 AND (g.id IS NOT NULL OR r.fee_id IS NOT NULL)
+      WHERE f.active=1 AND g.id IS NOT NULL
       ORDER BY f.name
-    ''', [classroomId, cycleId, schoolYearId]);
+    ''', [classroomId, cycleId]);
     final monthlyDeadlines = await BillingCalendarRepository.readMonthlyDeadlines(
         db, schoolYearId);
     final warnings = <String>[];
