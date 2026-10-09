@@ -96,6 +96,23 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   }
 
 
+  String _periodLabel(DueItem due) {
+    final key = due.periodKey;
+    final parts = key.split('-');
+    if (parts.length == 2 && parts[0].length == 4) {
+      final month = int.tryParse(parts[1]);
+      if (month != null && month >= 1 && month <= 12) {
+        const months = [
+          'Janvier','Février','Mars','Avril','Mai','Juin',
+          'Juillet','Août','Septembre','Octobre','Novembre','Décembre'
+        ];
+        return months[month - 1] + ' ' + parts[0];
+      }
+    }
+    if (key.contains('-T')) return key.replaceAll('-T', ' · Trimestre ');
+    return key;
+  }
+
   String _periodDeadline(DueItem due) {
     if (due.dueDate == null) return ' · Date limite à configurer';
     final d = due.dueDate!;
@@ -529,18 +546,18 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.account_balance_wallet_outlined),
-                  title: const Text('Solde restant dû'),
+                  title: const Text('Solde annuel restant (toutes rubriques)'),
                   subtitle: Text(
                     _outstanding == 0
                         ? 'Aucune échéance impayée'
-                        : 'Les montants supérieurs deviennent un avoir',
+                        : 'Le versement concerne uniquement les périodes cochées.',
                   ),
                   trailing: Text(
                     formatXaf(_outstanding!),
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  onTap: _outstanding! > 0
-                      ? () => _amount.text = _outstanding.toString()
+                  onTap: _selectedRemaining > 0
+                      ? () => _amount.text = _selectedRemaining.toString()
                       : null,
                 ),
               ),
@@ -600,7 +617,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                     value: _selectedDues.contains(due.id),
                     onChanged: due.balance <= 0 || _saving
                         ? null : (v) => _chooseDue(due, v == true),
-                    title: Text(due.periodKey + (due.balance <= 0 ? ' · Soldé' : '')),
+                    title: Text(_periodLabel(due) + (due.balance <= 0 ? ' · Soldé' : '')),
                     subtitle: Text('Tarif : ${formatXaf(due.amountDue)} · '
                       'Déjà payé : ${formatXaf(due.amountPaid)} · '
                       'Reste : ${formatXaf(due.balance)}'
