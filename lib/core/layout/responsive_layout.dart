@@ -87,6 +87,37 @@ class ResponsiveDialogContent extends StatelessWidget {
   }
 }
 
+/* A modal must remain usable when the Windows viewport is resized or when
+ * Windows display scaling and the software keyboard reduce available space.
+ * ListView/SingleChildScrollView supplied by callers owns vertical scrolling. */
+class ResponsiveDialogBody extends StatelessWidget {
+  const ResponsiveDialogBody({
+    super.key,
+    required this.child,
+    this.maxWidth = 520,
+    this.maxHeight = 480,
+  });
+
+  final Widget child;
+  final double maxWidth;
+  final double maxHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    // AlertDialog uses horizontal inset and content paddings of its own.
+    final availableWidth = (media.size.width - 128).clamp(0.0, maxWidth);
+    final availableHeight = (media.size.height -
+            media.padding.vertical - media.viewInsets.vertical - 240)
+        .clamp(0.0, maxHeight);
+    return SizedBox(
+      width: availableWidth,
+      height: availableHeight,
+      child: child,
+    );
+  }
+}
+
 class ResponsiveDataTable extends StatefulWidget {
   const ResponsiveDataTable({
     super.key,
