@@ -211,8 +211,8 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
           Card(child:ListTile(
             leading:const Icon(Icons.calendar_month_outlined),
             title:const Text('Dates limites de chaque mois'),
-            subtitle:const Text('Choisir les mois à payer et leurs dates '
-              'butoirs, une fois pour toute l’année scolaire.'),
+            subtitle:const Text('Choisir les mois et leurs dates butoirs. '
+              'Les anciennes échéances enregistrées ne sont jamais antidatées ou réécrites.'),
             trailing:const Icon(Icons.edit_calendar_outlined),
             onTap:busy||OperatorSession.isReadOnly?
               null:()=>configureMonthly(data),
@@ -225,11 +225,14 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
               ?Icons.warning_amber_outlined:Icons.check_circle_outline),
             title:Text(fee['fee_name'] as String),
             subtitle:Text((fee['periodicity'] as String)+' · '+
-              (fee['rule_id']==null?'Non configuré':
+              (fee['periodicity']=='mensuelle' && fee['monthly_configured']==1
+                ? 'Dates mensuelles configurées'
+                : fee['rule_id']==null?'Dates limites à configurer':
               fmt(DateTime.parse(fee['start_date'] as String))+' – '+
               fmt(DateTime.parse(fee['end_date'] as String))+
               ' · Jour '+fee['due_day'].toString())),
-            onTap:busy||OperatorSession.isReadOnly?null:()=>edit(data,fee),
+            onTap:busy||OperatorSession.isReadOnly?null:()=>
+                fee['periodicity']=='mensuelle' ? configureMonthly(data) : edit(data,fee),
             trailing:const Icon(Icons.edit_calendar_outlined)))),
           FilledButton.icon(
             onPressed:busy||OperatorSession.isReadOnly?null:complete,
