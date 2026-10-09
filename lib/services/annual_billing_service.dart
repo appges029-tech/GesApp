@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:uuid/uuid.dart';
 
@@ -56,6 +58,8 @@ class AnnualBillingService {
       WHERE f.active=1 AND (g.id IS NOT NULL OR r.fee_id IS NOT NULL)
       ORDER BY f.name
     ''', [classroomId, cycleId, schoolYearId]);
+    final monthlyDeadlines = await BillingCalendarRepository.readMonthlyDeadlines(
+        db, schoolYearId);
     final warnings = <String>[];
     var created = 0, existing = 0;
     for (final fee in fees) {
@@ -65,11 +69,19 @@ class AnnualBillingService {
       final rules = await db.query('billing_calendar_rules',
           where: 'school_year_id=? AND fee_id=? AND enabled=1',
           whereArgs: [schoolYearId, feeId], limit: 1);
-      if (rules.isEmpty) {
-        warnings.add('Calendrier manquant : $feeName');
+      final useGlobalMonths = periodicity == 'mensuelle' &&
+          monthlyDeadlines.isNotEmpty;
+      if (rules.isEmpty && !useGlobalMonths) {
+        warnings.add('Dates limites manquantes : $feeName');
         continue;
       }
-      final rule = rules.first;
+      final rule = rules.isNotEmpty ? rules.first : <String, Object?>{
+        'start_date': yearStart.toIso8601String(),
+        'end_date': yearEnd.toIso8601String(),
+        'due_day': 1,
+        'grace_days': 0,
+        'admission_policy': 'current_period',
+      };
       final rangeStart = _max(yearStart, _read(rule['start_date']));
       final rangeEnd = _min(yearEnd, _read(rule['end_date']));
       if (rangeStart.isAfter(rangeEnd)) {
@@ -78,9 +90,20 @@ class AnnualBillingService {
       }
       final starts = <DateTime>[];
       if (periodicity == 'mensuelle') {
-        for (var d = DateTime(rangeStart.year, rangeStart.month);
-            !d.isAfter(rangeEnd); d = DateTime(d.year, d.month + 1)) {
-          starts.add(_max(d, rangeStart));
+        if (useGlobalMonths) {
+          for (final key in monthlyDeadlines.keys.toList()..sort()) {
+            final parts = key.split('-');
+            final d = DateTime(int.parse(parts[0]), int.parse(parts[1]));
+            if (!d.isAfter(rangeEnd) &&
+                !DateTime(d.year, d.month + 1, 0).isBefore(rangeStart)) {
+              starts.add(_max(d, rangeStart));
+            }
+          }
+        } else {
+          for (var d = DateTime(rangeStart.year, rangeStart.month);
+              !d.isAfter(rangeEnd); d = DateTime(d.year, d.month + 1)) {
+            starts.add(_max(d, rangeStart));
+          }
         }
       } else if (periodicity == 'trimestrielle') {
         for (var d = rangeStart; !d.isAfter(rangeEnd);
@@ -163,8 +186,10 @@ class AnnualBillingService {
         final contractual = DateTime(start.year, start.month,
             dueDay > last ? last : dueDay);
         final grace = (rule['grace_days'] as int);
+        final configuredDeadline = useGlobalMonths
+            ? monthlyDeadlines[periodKey]! : contractual;
         final deadline = _min(yearEnd,
-            _max(contractual, admission.add(Duration(days: grace))));
+            _max(configuredDeadline, admission.add(Duration(days: grace))));
         final now = DateTime.now().toIso8601String();
         final rowId = await db.insert('dues', {
           'id': _uuid.v4(), 'student_id': studentId, 'family_id': familyId,
@@ -230,6 +255,192 @@ class BillingCalendarRepository {
       yearId, y['label'] as String,
       DateTime.parse(y['start_date'] as String),
       DateTime.parse(y['end_date'] as String), fees);
+  }
+
+  /// Dates limites mensuelles paramétrées pour l'année active.
+  /// Une absence de mois signifie qu'il n'est pas facturable : aucune
+  /// mensualité ni retard ne doit être inventé.
+  static Future<Map<String, DateTime>> readMonthlyDeadlines(
+      DatabaseExecutor db, String schoolYearId) async {
+    final rows = await db.query('app_settings', columns: ['value'],
+      where: 'key=?', whereArgs: ['billing_month_deadlines:$schoolYearId'],
+      limit: 1);
+    if (rows.isEmpty) return {};
+    final decoded = jsonDecode(rows.single['value'] as String);
+    if (decoded is! Map<String, dynamic>) {
+      throw StateError('Calendrier mensuel corrompu.');
+    }
+    return decoded.map((key, value) =>
+        MapEntry(key, DateTime.parse(value as String)));
+  }
+
+  Future<void> saveMonthlyDeadlines(Map<String, DateTime> dates) async {
+    BusinessWriteGuard.ensureAllowed('billing.months.manage');
+    final data = await load();
+    if (dates.isEmpty) {
+      throw StateError('Sélectionnez au moins un mois de paiement.');
+    }
+    final periodStart = DateTime(data.start.year, data.start.month);
+    final periodEnd = DateTime(data.end.year, data.end.month);
+    final ordered = <String, String>{};
+    for (final entry in dates.entries) {
+      if (!RegExp(r'^\d{4}-(0[1-9]|1[0-2])
+    required String feeId, required DateTime startDate,
+    required DateTime endDate, required int dueDay,
+    required String admissionPolicy, required int graceDays,
+  }) async {
+    BusinessWriteGuard.ensureAllowed('billing.calendar.manage');
+    final data = await load();
+    DateTime day(DateTime d) => DateTime(d.year, d.month, d.day);
+    final start = day(startDate), end = day(endDate);
+    if (start.isBefore(day(data.start)) || end.isAfter(day(data.end)) ||
+        end.isBefore(start)) {
+      throw StateError('La période facturable doit rester dans l’année scolaire.');
+    }
+    if (dueDay < 1 || dueDay > 31) {
+      throw ArgumentError('Le jour de paiement doit être compris entre 1 et 31.');
+    }
+    if (graceDays < 0 || graceDays > 90) {
+      throw ArgumentError('Le délai d’admission doit être de 0 à 90 jours.');
+    }
+    if (!const {'current_period','next_period'}.contains(admissionPolicy)) {
+      throw ArgumentError('Règle d’admission invalide.');
+    }
+    if (!data.fees.any((fee) => fee['fee_id'] == feeId)) {
+      throw StateError('Type de frais inexistant ou désactivé.');
+    }
+    final now = DateTime.now().toIso8601String();
+    await _database.db.transaction((tx) async {
+      final rows = await tx.query('billing_calendar_rules',
+        columns: ['id'], where: 'school_year_id=? AND fee_id=?',
+        whereArgs: [data.yearId, feeId], limit: 1);
+      final values = <String, Object?> {
+        'start_date': start.toIso8601String(),
+        'end_date': end.toIso8601String(),
+        'due_day': dueDay,
+        'admission_policy': admissionPolicy,
+        'grace_days': graceDays,
+        'enabled': 1,
+        'updated_at': now,
+      };
+      if (rows.isEmpty) {
+        await tx.insert('billing_calendar_rules', {
+          'id': _uuid.v4(), 'school_year_id': data.yearId,
+          'fee_id': feeId, ...values, 'created_at': now,
+        });
+      } else {
+        await tx.update('billing_calendar_rules', values,
+          where: 'id=?', whereArgs: [rows.first['id']]);
+      }
+      await tx.insert('audit_log', {
+        'entity_type': 'billing_rule', 'entity_id': feeId,
+        'action': rows.isEmpty ? 'create' : 'update',
+        'new_value': data.yearId + '/' + start.toIso8601String() +
+            '/' + end.toIso8601String() + '/' + dueDay.toString() +
+            '/' + admissionPolicy,
+        'operator_name': OperatorSession.current,
+        'operator_id': OperatorSession.userId,
+        'operator_role': OperatorSession.role,
+        'created_at': now,
+      });
+    });
+  }
+
+  /// Analyse le nombre de dossiers sans calendrier fiable; ne modifie rien.
+  Future<int> pendingEnrollmentCount() async {
+    final data = await load();
+    final rows = await _database.db.rawQuery('''
+      SELECT COUNT(*) count FROM student_enrollments e
+      LEFT JOIN student_billing_state b ON b.student_id=e.student_id
+        AND b.school_year_id=e.school_year_id
+      WHERE e.school_year_id=? AND e.status='active'
+        AND (b.status IS NULL OR b.status='pending_configuration')
+    ''', [data.yearId]);
+    return (rows.first['count'] as int?) ?? 0;
+  }
+
+  /// Reprise contrôlée des inscriptions historiques ou incomplètes.
+  /// Le gestionnaire confirme d'abord la simulation; les états 'needs_review'
+  /// ne sont jamais traités automatiquement.
+  Future<BillingRepairResult> completePending() async {
+    BusinessWriteGuard.ensureAllowed('billing.calendar.repair');
+    final data = await load();
+    final rows = await _database.db.rawQuery('''
+      SELECT e.student_id,e.school_year_id,e.classroom_id,e.effective_from
+      FROM student_enrollments e
+      LEFT JOIN student_billing_state b ON b.student_id=e.student_id
+        AND b.school_year_id=e.school_year_id
+      WHERE e.school_year_id=? AND e.status='active'
+        AND (b.status IS NULL OR b.status='pending_configuration')
+      ORDER BY e.student_id
+    ''', [data.yearId]);
+    var created = 0, completed = 0, pending = 0;
+    final failed = <String>[];
+    for (final row in rows) {
+      try {
+        final result = await _database.db.transaction((tx) =>
+            const AnnualBillingService().createForEnrollment(tx,
+              studentId: row['student_id'] as String,
+              schoolYearId: row['school_year_id'] as String,
+              classroomId: row['classroom_id'] as String,
+              enrolledAt: DateTime.parse(row['effective_from'] as String)));
+        created += result.created;
+        if (result.status == 'ready') { completed++; } else { pending++; }
+      } catch (error) {
+        failed.add((row['student_id'] as String) + ' : ' + error.toString());
+      }
+    }
+    return BillingRepairResult(created, completed, pending, failed);
+  }
+}
+
+class BillingCalendarConfiguration {
+  const BillingCalendarConfiguration(
+      this.yearId, this.label, this.start, this.end, this.fees);
+  final String yearId, label;
+  final DateTime start, end;
+  final List<Map<String, Object?>> fees;
+}
+
+class BillingRepairResult {
+  const BillingRepairResult(
+      this.created, this.completed, this.pending, this.errors);
+  final int created, completed, pending;
+  final List<String> errors;
+}
+).hasMatch(entry.key)) {
+        throw StateError('Période mensuelle invalide.');
+      }
+      final parts = entry.key.split('-');
+      final month = DateTime(int.parse(parts[0]), int.parse(parts[1]));
+      final date = DateTime(entry.value.year,entry.value.month,entry.value.day);
+      if (month.isBefore(periodStart) || month.isAfter(periodEnd) ||
+          date.year != month.year || date.month != month.month ||
+          date.isBefore(DateTime(data.start.year,data.start.month,data.start.day)) ||
+          date.isAfter(DateTime(data.end.year,data.end.month,data.end.day))) {
+        throw StateError('Date limite hors du mois ou de l’année scolaire.');
+      }
+      ordered[entry.key] = date.toIso8601String();
+    }
+    final key = 'billing_month_deadlines:' + data.yearId;
+    final now = DateTime.now().toIso8601String();
+    await _database.db.transaction((tx) async {
+      final old = await tx.query('app_settings', where:'key=?',
+          whereArgs:[key], limit:1);
+      await tx.insert('app_settings', {
+        'key':key, 'value':jsonEncode(ordered), 'updated_at':now,
+      },conflictAlgorithm:ConflictAlgorithm.replace);
+      await tx.insert('audit_log', {
+        'entity_type':'billing_calendar','entity_id':data.yearId,
+        'action':old.isEmpty?'configure_months':'revise_months',
+        'old_value':old.isEmpty?null:old.single['value'],
+        'new_value':jsonEncode(ordered),
+        'operator_name':OperatorSession.current,
+        'operator_id':OperatorSession.userId,
+        'operator_role':OperatorSession.role,
+        'created_at':now,
+      });
+    });
   }
 
   Future<void> saveRule({
