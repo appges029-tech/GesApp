@@ -6,6 +6,7 @@ import 'package:gesapp/data/repositories/finance_repository.dart';
 import 'package:gesapp/data/repositories/settings_repository.dart';
 import 'package:gesapp/data/repositories/student_repository.dart';
 import 'package:gesapp/services/annual_billing_service.dart';
+import 'package:gesapp/services/json_schema.dart';
 
 void main() {
   late SettingsRepository settings;
@@ -138,4 +139,23 @@ void main() {
       referenceDate:DateTime(2026,10,1)),
       throwsA(isA<StateError>()));
   });
+  test('sauvegarde V29 complète acceptée, sauvegarde tronquée refusée', () {
+    final olderNames = gesAppPortableTables.where(
+      (name) => name != 'billing_calendar_rules' &&
+                name != 'student_billing_state').toList();
+    final legacy = <String, dynamic>{
+      for (final name in olderNames) name: <Map<String,Object?>>[],
+    };
+    expect(() => validateCompletePortableExport(
+      sourceSchemaVersion:29,currentSchemaVersion:30,
+      currentPortableTables:gesAppPortableTables,
+      sourceTables:legacy,tableManifest:olderNames),returnsNormally);
+    final incomplete = Map<String,dynamic>.from(legacy)..remove('dues');
+    expect(() => validateCompletePortableExport(
+      sourceSchemaVersion:29,currentSchemaVersion:30,
+      currentPortableTables:gesAppPortableTables,
+      sourceTables:incomplete,tableManifest:olderNames),
+      throwsA(isA<FormatException>()));
+  });
+
 }
