@@ -248,6 +248,10 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 10),
+                        if (s.paymentStatus == 'pending_configuration')
+                          const Text('Échéancier incomplet : configurez les frais et leur calendrier.', style: TextStyle(color: Colors.deepOrange)),
+                        if (s.paymentStatus == 'needs_review')
+                          const Text('Échéancier à vérifier après modification du dossier.', style: TextStyle(color: Colors.deepOrange)),
                         _line('Attendu', formatXaf(b.finance.expected)),
                         _line('Payé', formatXaf(b.finance.paid)),
                         _line('Reste', formatXaf(b.finance.outstanding)),
