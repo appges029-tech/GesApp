@@ -8,6 +8,7 @@ import 'accounting_settings_screen.dart';
 import 'bank_reconciliation_screen.dart';
 import 'cash_screen.dart';
 import 'dues_generation_screen.dart';
+import 'billing_calendar_screen.dart';
 import 'dues_screen.dart';
 import 'fee_categories_screen.dart';
 import 'fee_grid_screen.dart';
@@ -26,7 +27,8 @@ class FinanceScreen extends StatelessWidget {
     final modules = <Widget>[
       _module(context, Icons.category_outlined, 'Rubriques de paiement', 'Créer et configurer les frais', const FeeCategoriesScreen()),
       _module(context, Icons.price_change_outlined, 'Grille tarifaire', 'Tarifs par cycle ou classe', const FeeGridScreen()),
-      _module(context, Icons.auto_awesome_outlined, 'Génération des échéances', 'Créer les mensualités/trimestres à recouvrer', const DuesGenerationScreen()),
+      _module(context, Icons.calendar_month_outlined, 'Calendrier de facturation', 'Génération automatique dès l’inscription', const BillingCalendarScreen()),
+      _module(context, Icons.auto_awesome_outlined, 'Outil de génération historique', 'À utiliser uniquement après vérification', const DuesGenerationScreen()),
       _module(context, Icons.workspace_premium_outlined, 'Forfaits', 'Réductions familiales et individuelles', const PackagesScreen()),
       _module(context, Icons.account_balance_wallet_outlined, 'Caisse & clôture', 'Ouverture, solde théorique et clôture journalière', const CashScreen()),
       _module(context, Icons.payments_outlined, 'Encaissements', 'Paiements, reçus, remboursements et annulations', const PaymentsScreen()),
