@@ -93,7 +93,10 @@ void validateCompletePortableExport({
   required Map<String, dynamic> sourceTables,
   Object? tableManifest,
 }) {
-  if (sourceSchemaVersion != currentSchemaVersion) {
+  // L'unique mise à niveau JSON explicitement autorisée est V29 vers V30.
+  // Seules les deux nouvelles tables, inexistantes en V29, peuvent manquer.
+  final legacyV29 = sourceSchemaVersion == 29 && currentSchemaVersion == 30;
+  if (sourceSchemaVersion != currentSchemaVersion && !legacyV29) {
     throw FormatException(
       'Version de schéma JSON incompatible : $sourceSchemaVersion au lieu de '
       '$currentSchemaVersion. Réexportez la sauvegarde avec la version actuelle de GesApp.',
@@ -101,6 +104,9 @@ void validateCompletePortableExport({
   }
 
   final expected = currentPortableTables.toSet();
+  if (legacyV29) {
+    expected.removeAll(const {'billing_calendar_rules','student_billing_state'});
+  }
   final provided = sourceTables.keys.toSet();
   final missing = expected.difference(provided).toList()..sort();
   final unexpected = provided.difference(expected).toList()..sort();
