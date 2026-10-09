@@ -316,7 +316,9 @@ class _DesktopExpenseList extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return WindowsPanel(
       padding: EdgeInsets.zero,
-      child: Column(
+      child: WindowsAdaptiveTable(
+        minWidth: 1050,
+        child: Column(
         children: [
           Container(
             height: 40,
@@ -387,6 +389,7 @@ class _DesktopExpenseList extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
