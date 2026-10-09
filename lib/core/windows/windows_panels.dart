@@ -101,6 +101,32 @@ class WindowsModuleCard extends StatelessWidget {
   }
 }
 
+/// Keeps critical columns readable in a resized Windows window.
+/// No horizontal scroll is introduced while all columns fit.
+class WindowsAdaptiveTable extends StatelessWidget {
+  const WindowsAdaptiveTable({
+    super.key,
+    required this.child,
+    this.minWidth = 980,
+  });
+
+  final Widget child;
+  final double minWidth;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth >= minWidth) return child;
+      return Scrollbar(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(width: minWidth, child: child),
+        ),
+      );
+    },
+  );
+}
+
 class WindowsModuleGrid extends StatelessWidget {
   const WindowsModuleGrid({super.key, required this.children});
   final List<Widget> children;
