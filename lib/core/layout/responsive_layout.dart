@@ -106,10 +106,10 @@ class ResponsiveDialogBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     // AlertDialog uses horizontal inset and content paddings of its own.
-    final availableWidth = (media.size.width - 128).clamp(0.0, maxWidth);
+    final availableWidth = (media.size.width - 128).clamp(0.0, maxWidth).toDouble();
     final availableHeight = (media.size.height -
             media.padding.vertical - media.viewInsets.vertical - 240)
-        .clamp(0.0, maxHeight);
+        .clamp(0.0, maxHeight).toDouble();
     return SizedBox(
       width: availableWidth,
       height: availableHeight,
