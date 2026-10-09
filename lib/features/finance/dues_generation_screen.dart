@@ -223,6 +223,9 @@ class _DuesGenerationScreenState extends ConsumerState<DuesGenerationScreen> {
                 if (picked != null && mounted) {
                   setState(() {
                     _referenceMonth = DateTime(picked.year, picked.month, 1);
+                    final last = DateTime(picked.year, picked.month + 1, 0).day;
+                    _dueDate = DateTime(picked.year, picked.month,
+                        _dueDate.day > last ? last : _dueDate.day);
                     _preview = null;
                   });
                 }
