@@ -28,7 +28,21 @@ class GesApp extends StatelessWidget {
         themeMode: controller.mode,
         builder: (context, child) => ValueListenableBuilder<int>(
           valueListenable: OperatorSession.changes,
-          builder: (context, _, __) => GlassPage(
+          builder: (context, _, __) => windows
+            ? Stack(
+                children: [
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                  if (OperatorSession.isReadOnly) const _AdminReadOnlyBadge(),
+                  if (OperatorSession.organizationId != null)
+                    const TenantSubscriptionOverlay(),
+                ],
+              )
+            : GlassPage(
             background: const LiquidGlassBackdrop(),
             enableBackgroundSampling: true,
             edgeToEdge: true,
