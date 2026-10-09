@@ -21,6 +21,94 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
     if(mounted)ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content:Text(message)));
   }
+  static const _monthNames = [
+    'Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août',
+    'Septembre','Octobre','Novembre','Décembre'
+  ];
+
+  Future<void> configureMonthly(BillingCalendarConfiguration data) async {
+    if (busy) return;
+    final old = await BillingCalendarRepository.readMonthlyDeadlines(
+        AppDatabase.instance.db, data.yearId);
+    if (!mounted) return;
+    final selected = <String, DateTime?>{for (final e in old.entries) e.key:e.value};
+    final first = DateTime(data.start.year, data.start.month);
+    final last = DateTime(data.end.year, data.end.month);
+    final months = <DateTime>[];
+    for (var m=first; !m.isAfter(last); m=DateTime(m.year,m.month+1)) {
+      months.add(m);
+    }
+    final confirmed = await showDialog<bool>(context: context,
+      builder:(dialogContext)=>StatefulBuilder(builder:(context,update)=>
+        AlertDialog(
+          title:const Text('Dates limites mensuelles'),
+          content:SizedBox(width:460,height:440,child:Column(children:[
+            const Text('Sélectionnez uniquement les mois facturables. '
+              'Pour chaque mois, choisissez sa date limite exacte.'),
+            const SizedBox(height:10),
+            Expanded(child:ListView(children: months.map((month) {
+              final key=month.year.toString()+'-'+
+                  month.month.toString().padLeft(2,'0');
+              final chosen=selected.containsKey(key);
+              final deadline=selected[key];
+              return Column(children:[
+                CheckboxListTile(
+                  dense:true,controlAffinity:ListTileControlAffinity.leading,
+                  value:chosen,
+                  title:Text(_monthNames[month.month-1]+' '+month.year.toString()),
+                  subtitle:Text(deadline==null?
+                    'Date limite non choisie':fmt(deadline)),
+                  onChanged:(value)=>update((){
+                    if(value==true){selected[key]=null;}
+                    else{selected.remove(key);}
+                  }),
+                ),
+                if(chosen) Padding(
+                  padding:const EdgeInsets.only(left:40,right:8,bottom:8),
+                  child:OutlinedButton.icon(
+                    icon:const Icon(Icons.event),
+                    label:Text(deadline==null?'Choisir une date limite':
+                        'Modifier : '+fmt(deadline)),
+                    onPressed:() async {
+                      final firstDate=month.isBefore(data.start)?data.start:month;
+                      final lastOfMonth=DateTime(month.year,month.month+1,0);
+                      final lastDate=lastOfMonth.isAfter(data.end)?
+                          data.end:lastOfMonth;
+                      final picked=await showDatePicker(context:context,
+                        initialDate:deadline??firstDate,
+                        firstDate:firstDate,lastDate:lastDate);
+                      if(picked!=null)update(()=>selected[key]=picked);
+                    },
+                  ),
+                ),
+                const Divider(height:1),
+              ]);
+            }).toList())),
+          ])),
+          actions:[
+            TextButton(onPressed:()=>Navigator.pop(dialogContext,false),
+              child:const Text('Annuler')),
+            FilledButton(
+              onPressed:selected.isNotEmpty &&
+                  selected.values.every((v)=>v!=null)
+                  ? ()=>Navigator.pop(dialogContext,true):null,
+              child:const Text('Enregistrer le calendrier')),
+          ],
+        )));
+    if (confirmed!=true || !mounted)return;
+    setState(()=>busy=true);
+    try {
+      await repo.saveMonthlyDeadlines(
+        selected.map((key,value)=>MapEntry(key,value!)));
+      notify('Dates limites mensuelles enregistrées.');
+      refresh();
+    } catch(error) {
+      notify('Dates limites refusées : '+error.toString());
+    } finally {
+      if(mounted)setState(()=>busy=false);
+    }
+  }
+
   Future<void> edit(BillingCalendarConfiguration data,
       Map<String,Object?> fee) async {
     var from=fee['start_date']==null?data.start:
@@ -120,6 +208,15 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
           Card(child:ListTile(title:Text('Année '+data.label),
             subtitle:Text(fmt(data.start)+' – '+fmt(data.end)+'\n'
               'Configurez les dates avant les inscriptions.'))),
+          Card(child:ListTile(
+            leading:const Icon(Icons.calendar_month_outlined),
+            title:const Text('Dates limites de chaque mois'),
+            subtitle:const Text('Choisir les mois à payer et leurs dates '
+              'butoirs, une fois pour toute l’année scolaire.'),
+            trailing:const Icon(Icons.edit_calendar_outlined),
+            onTap:busy||OperatorSession.isReadOnly?
+              null:()=>configureMonthly(data),
+          )),
           if(data.fees.isEmpty)const ListTile(
             title:Text('Aucun frais actif'),
             subtitle:Text('Créez les rubriques et leurs tarifs.')),
