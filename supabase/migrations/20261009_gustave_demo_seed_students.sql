@@ -73,6 +73,7 @@ synthetics as (
   'Brazzaville - adresse fictive' as address,
   'Ecole fictive' as origin_school
  from numbered
+ where exists (select 1 from public.organizations where id = 'b38efacc-4fa1-4ffe-8989-e936a90fc197'::uuid)
 )
 insert into public.tenant_demo_seed_students (
  organization_id,seed_code,first_name,last_name,classroom,cycle,gender,
