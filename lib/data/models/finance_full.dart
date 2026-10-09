@@ -5,8 +5,9 @@ class FeeGridItem {
   final DateTime validFrom;
 }
 class DueItem {
-  const DueItem({required this.id, required this.studentId, required this.studentName, required this.feeName, required this.periodKey, required this.amountDue, required this.amountPaid, required this.status, this.dueDate});
+  const DueItem({required this.id, required this.studentId, required this.studentName, required this.feeName, required this.periodKey, required this.amountDue, required this.amountPaid, required this.status, this.dueDate, this.feeId});
   final String id, studentId, studentName, feeName, periodKey, status;
+  final String? feeId;
   final int amountDue, amountPaid;
   final DateTime? dueDate;
   int get balance => amountDue - amountPaid;
