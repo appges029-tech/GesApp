@@ -110,7 +110,7 @@ void main() {
   });
 
 
-  test('la date de référence choisit le bon tarif même si la date limite est antérieure', () async {
+  test('une date limite avant la période est refusée sans écriture', () async {
     final target = await createClass('Test-Reference');
     final studentId = await students.add(
       firstName: 'Référence',
@@ -132,15 +132,16 @@ void main() {
       validFrom: DateTime(2026, 10, 1),
     );
 
-    final created = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      referenceDate: DateTime(2026, 10, 1),
-      dueDate: DateTime(2026, 9, 25),
+    await expectLater(
+      finance.generateDues(
+        periodKey: '2026-10',
+        periodicity: 'mensuelle',
+        referenceDate: DateTime(2026, 10, 1),
+        dueDate: DateTime(2026, 9, 25),
+      ),
+      throwsA(isA<StateError>()),
     );
-
-    expect(created, 1);
-    expect((await finance.dues()).single.amountDue, 22000);
+    expect(await finance.dues(), isEmpty);
   });
 
   test('un forfait individuel remplace le tarif standard', () async {
