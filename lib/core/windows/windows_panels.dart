@@ -17,6 +17,22 @@ class WindowsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (WindowsUi.isDesktop(context)) {
+      final scheme = Theme.of(context).colorScheme;
+      final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: scheme.outlineVariant),
+      );
+      final content = Padding(padding: padding, child: child);
+      return Material(
+        color: scheme.surface,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null
+            ? content
+            : InkWell(onTap: onTap, child: content),
+      );
+    }
     final content = GlassCard(
       padding: padding,
       quality: GlassQuality.standard,
@@ -26,7 +42,7 @@ class WindowsPanel extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(WindowsUi.isDesktop(context) ? 8 : 16),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: content,
       ),
