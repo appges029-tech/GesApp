@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/layout/responsive_layout.dart';
+import '../../core/windows/windows_page_scaffold.dart';
+import '../../core/windows/windows_ui.dart';
 import '../../core/db/app_database.dart';
 import '../../core/session/operator_session.dart';
 import '../../services/annual_billing_service.dart';
@@ -198,9 +200,8 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
     finally{if(mounted)setState(()=>busy=false);}
   }
   @override
-  Widget build(BuildContext context)=>Scaffold(
-    appBar:AppBar(title:const Text('Calendrier de facturation')),
-    body:FutureBuilder<BillingCalendarConfiguration>(future:future,
+  Widget build(BuildContext context) {
+    final body = FutureBuilder<BillingCalendarConfiguration>(future:future,
       builder:(context,snap){
         if(snap.hasError)return Center(child:Text(snap.error.toString()));
         if(!snap.hasData)return const Center(child:CircularProgressIndicator());
@@ -242,6 +243,18 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
           if(OperatorSession.isReadOnly)
             const Text('Lecture seule : connectez un gestionnaire.'),
         ]);
-      }),
-  );
+      });
+    if (WindowsUi.isDesktop(context)) {
+      return WindowsPageScaffold(
+        title: 'Calendrier de facturation',
+        subtitle: 'Mois facturables, dates butoirs et règles scolaires',
+        maxWidth: WindowsUi.formMaxWidth,
+        body: body,
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('Calendrier de facturation')),
+      body: body,
+    );
+  }
 }
