@@ -745,6 +745,7 @@ String _normalizeSearch(String value) {
 /// beaucoup plus rapide à utiliser lorsqu'il y a de nombreux élèves.
 class _StudentSearchField extends StatefulWidget {
   const _StudentSearchField({
+    super.key,
     required this.students,
     required this.selectedId,
     required this.onSelected,
