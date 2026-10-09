@@ -3,6 +3,7 @@ import 'package:sqflite_common/utils/utils.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/db/app_database.dart';
+import '../../services/annual_billing_service.dart';
 import '../../core/session/business_write_guard.dart';
 import '../../core/session/operator_session.dart';
 import 'cash_rules.dart';
@@ -190,6 +191,14 @@ class FinanceRepository {
         'created_at': now.toIso8601String(),
       });
     });
+    // Une fois le tarif enregistré, toutes les inscriptions actives dont
+    // le calendrier est prêt reçoivent leurs échéances manquantes. Les
+    // anciennes lignes et tous les paiements sont préservés.
+    final activeYear = await _activeSchoolYearId(_database.db);
+    if (activeYear != null) {
+      await BillingCalendarRepository(_database)
+          .completePending(includeReady: true);
+    }
   }
 
   Future<List<FeeGridItem>> feeGrid() async {
