@@ -24,22 +24,41 @@ class FinanceScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final modules = <Widget>[
-      _module(context, Icons.category_outlined, 'Rubriques de paiement', 'Créer et configurer les frais', const FeeCategoriesScreen()),
-      _module(context, Icons.price_change_outlined, 'Grille tarifaire', 'Tarifs par cycle ou classe', const FeeGridScreen()),
-      _module(context, Icons.calendar_month_outlined, 'Calendrier de facturation', 'Génération automatique dès l’inscription', const BillingCalendarScreen()),
-      _module(context, Icons.auto_awesome_outlined, 'Outil de génération historique', 'À utiliser uniquement après vérification', const DuesGenerationScreen()),
-      _module(context, Icons.workspace_premium_outlined, 'Forfaits', 'Réductions familiales et individuelles', const PackagesScreen()),
-      _module(context, Icons.account_balance_wallet_outlined, 'Caisse & clôture', 'Ouverture, solde théorique et clôture journalière', const CashScreen()),
-      _module(context, Icons.payments_outlined, 'Encaissements', 'Paiements, reçus, remboursements et annulations', const PaymentsScreen()),
-      _module(context, Icons.verified_user_outlined, 'Vérifier un document', 'Contrôler un reçu ou une référence documentaire GesApp', const ReceiptVerificationScreen()),
-      _module(context, Icons.warning_amber_rounded, 'Impayés', 'Suivre les soldes et retards', const DuesScreen()),
-      _module(context, Icons.phone_in_talk_outlined, 'Recouvrement', 'Relances, promesses de paiement et suivi des contacts', const RecoveryScreen()),
-      _module(context, Icons.account_tree_outlined, 'Comptabilité générale', 'Plan comptable, livre-journal, grand-livre et balance', const AccountingScreen()),
-      _module(context, Icons.local_shipping_outlined, 'Dettes fournisseurs', 'Factures, échéances et règlements fournisseurs', const SupplierAccountingScreen()),
-      _module(context, Icons.edit_note_outlined, 'Écritures manuelles', 'Opérations diverses avec contrôle débit/crédit', const ManualJournalEntryScreen()),
-      _module(context, Icons.account_balance_outlined, 'Rapprochement bancaire', 'Pointer banque et Mobile Money avec le relevé', const BankReconciliationScreen()),
-      _module(context, Icons.tune_outlined, 'Paramétrage comptable', 'Comptes de créances, produits, fournisseurs et trésorerie', const AccountingSettingsScreen()),
+    final primary = <Widget>[
+      _module(context, Icons.payments_outlined, 'Encaisser un paiement',
+        'Retrouver un élève, sa rubrique et sa période', const PaymentsScreen()),
+      _module(context, Icons.account_balance_wallet_outlined, 'Caisse et clôture',
+        'Contrôler les opérations et le solde de caisse', const CashScreen()),
+      _module(context, Icons.warning_amber_rounded, 'Impayés et échéanciers',
+        'Retards et sommes restant à régler', const DuesScreen()),
+      _module(context, Icons.phone_in_talk_outlined, 'Recouvrement',
+        'Relances et suivi des engagements', const RecoveryScreen()),
+    ];
+    final configuration = <Widget>[
+      _module(context, Icons.category_outlined, 'Rubriques de paiement',
+        'Définir les types de frais', const FeeCategoriesScreen()),
+      _module(context, Icons.price_change_outlined, 'Grille tarifaire',
+        'Tarifs par cycle ou par classe', const FeeGridScreen()),
+      _module(context, Icons.calendar_month_outlined, 'Calendrier',
+        'Dates limites par mois', const BillingCalendarScreen()),
+      _module(context, Icons.workspace_premium_outlined, 'Forfaits et remises',
+        'Ajustements autorisés', const PackagesScreen()),
+      _module(context, Icons.auto_awesome_outlined, 'Génération historique',
+        'Outil exceptionnel de contrôle', const DuesGenerationScreen()),
+    ];
+    final accounting = <Widget>[
+      _module(context, Icons.account_tree_outlined, 'Comptabilité générale',
+        'Journaux, grand-livre et balance', const AccountingScreen()),
+      _module(context, Icons.local_shipping_outlined, 'Dettes fournisseurs',
+        'Factures et règlements fournisseurs', const SupplierAccountingScreen()),
+      _module(context, Icons.edit_note_outlined, 'Écritures manuelles',
+        'Saisie contrôlée', const ManualJournalEntryScreen()),
+      _module(context, Icons.account_balance_outlined, 'Rapprochement bancaire',
+        'Comparer les mouvements', const BankReconciliationScreen()),
+      _module(context, Icons.tune_outlined, 'Paramétrage comptable',
+        'Comptes et affectations', const AccountingSettingsScreen()),
+      _module(context, Icons.verified_user_outlined, 'Vérifier un reçu',
+        'Authenticité des documents', const ReceiptVerificationScreen()),
     ];
 
     return WindowsPageScaffold(
@@ -48,12 +67,31 @@ class FinanceScreen extends StatelessWidget {
       body: ListView(
         padding: WindowsUi.isDesktop(context) ? EdgeInsets.zero : const EdgeInsets.all(16),
         children: [
-          WindowsModuleGrid(children: modules),
+          _section(context, 'Opérations quotidiennes', 'Retrouver rapidement les actions essentielles'),
+          WindowsModuleGrid(children: primary),
+          const SizedBox(height: 26),
+          _section(context, 'Configuration scolaire', 'Rubriques, tarifs, calendrier et remises'),
+          WindowsModuleGrid(children: configuration),
+          const SizedBox(height: 26),
+          _section(context, 'Comptabilité et contrôles', 'Outils administratifs et vérification'),
+          WindowsModuleGrid(children: accounting),
           const SizedBox(height: 28),
         ],
       ),
     );
   }
+
+  Widget _section(BuildContext context, String title, String description) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w700)),
+          const SizedBox(height: 3),
+          Text(description, style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ]),
+      );
 
   Widget _module(BuildContext context, IconData icon, String title, String subtitle, Widget destination) => WindowsModuleCard(
         icon: icon,
