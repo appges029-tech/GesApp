@@ -36,13 +36,8 @@ class FinanceRepository {
       orderBy: 'start_date DESC',
       limit: 1,
     );
-    if (rows.isNotEmpty) return rows.first;
-    final active = await db.query(
-      'school_years',
-      where: 'is_active = 1',
-      limit: 1,
-    );
-    return active.isEmpty ? null : active.first;
+    // Ne jamais substituer une autre année scolaire : facturation erronée.
+    return rows.isEmpty ? null : rows.first;
   }
 
   // --- Rubriques et grille tarifaire ------------------------------------
@@ -235,11 +230,19 @@ class FinanceRepository {
   }) async {
     final db = _database.db;
     final effectiveDate = referenceDate ?? dueDate;
+    if (dueDate.isBefore(effectiveDate)) {
+      throw StateError('La date limite ne peut pas précéder la période facturée.');
+    }
     final schoolYear = await _schoolYearForDate(db, effectiveDate);
     if (schoolYear == null) {
       throw StateError('Créez et activez une année scolaire avant de simuler les échéances.');
     }
     final schoolYearId = schoolYear['id'] as String;
+    final managed = await db.query('billing_calendar_rules', columns:['id'],
+        where:'school_year_id=? AND enabled=1', whereArgs:[schoolYearId], limit:1);
+    if (managed.isNotEmpty) {
+      throw StateError('Cette année scolaire possède un calendrier automatique. Utilisez « Calendrier de facturation » pour compléter les échéanciers sans doublons.');
+    }
     final students = await db.rawQuery('''
       SELECT s.id student_id, s.family_id, se.classroom_id, c.cycle_id
       FROM student_enrollments se
@@ -356,11 +359,19 @@ class FinanceRepository {
     // échéance d'octobre ne doit pas utiliser par erreur le tarif du jour où
     // le gestionnaire lance la génération.
     final effectiveDate = referenceDate ?? dueDate;
+    if (dueDate.isBefore(effectiveDate)) {
+      throw StateError('La date limite ne peut pas précéder la période facturée.');
+    }
     final schoolYear = await _schoolYearForDate(db, effectiveDate);
     if (schoolYear == null) {
       throw StateError('Créez et activez une année scolaire avant de générer les échéances.');
     }
     final schoolYearId = schoolYear['id'] as String;
+    final managed = await db.query('billing_calendar_rules', columns:['id'],
+        where:'school_year_id=? AND enabled=1', whereArgs:[schoolYearId], limit:1);
+    if (managed.isNotEmpty) {
+      throw StateError('Cette année scolaire possède un calendrier automatique. Utilisez « Calendrier de facturation » pour compléter les échéanciers sans doublons.');
+    }
     final schoolYearStart = DateTime.parse(schoolYear['start_date'] as String);
     final schoolYearEnd = DateTime.parse(schoolYear['end_date'] as String);
     if (effectiveDate.isBefore(schoolYearStart) || effectiveDate.isAfter(schoolYearEnd)) {
