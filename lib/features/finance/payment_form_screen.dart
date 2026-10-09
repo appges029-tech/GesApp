@@ -26,6 +26,9 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   _PayerType _payerType = _PayerType.student;
   String? _studentId;
   String? _familyId;
+  String? _cycleId;
+  String? _classroomId;
+  String? _feeId;
   String _method = 'Espèces';
   String? _cashAccountId = 'main_cash';
   List<Map<String, Object?>> _paymentMethods = const [];
@@ -92,9 +95,70 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     super.dispose();
   }
 
+
+  String _periodLabel(DueItem due) {
+    final key = due.periodKey;
+    final parts = key.split('-');
+    if (parts.length == 2 && parts[0].length == 4) {
+      final month = int.tryParse(parts[1]);
+      if (month != null && month >= 1 && month <= 12) {
+        const months = [
+          'Janvier','Février','Mars','Avril','Mai','Juin',
+          'Juillet','Août','Septembre','Octobre','Novembre','Décembre'
+        ];
+        return months[month - 1] + ' ' + parts[0];
+      }
+    }
+    if (key.contains('-T')) return key.replaceAll('-T', ' · Trimestre ');
+    return key;
+  }
+
+  String _periodDeadline(DueItem due) {
+    if (due.dueDate == null) return ' · Date limite à configurer';
+    final d = due.dueDate!;
+    return ' · Limite : ' + d.day.toString().padLeft(2, '0') + '/' +
+        d.month.toString().padLeft(2, '0') + '/' + d.year.toString();
+  }
+
+  int get _selectedRemaining => _payerDues
+      .where((due) => _selectedDues.contains(due.id))
+      .fold<int>(0, (total, due) => total + due.balance);
+
+  void _chooseRubric(String? feeId) {
+    setState(() {
+      _feeId = feeId;
+      _selectedDues.clear();
+      for (final due in _payerDues) {
+        if (due.feeId == feeId && due.balance > 0) {
+          _selectedDues.add(due.id);
+          break;
+        }
+      }
+      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    });
+  }
+
+  void _chooseDue(DueItem due, bool selected) {
+    if (due.balance <= 0 || due.feeId != _feeId) return;
+    setState(() {
+      if (selected) { _selectedDues.add(due.id); }
+      else { _selectedDues.remove(due.id); }
+      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    });
+  }
+
+  void _chooseDueFamily(DueItem due, bool selected) {
+    setState(() {
+      if (selected) { _selectedDues.add(due.id); }
+      else { _selectedDues.remove(due.id); }
+      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    });
+  }
+
   Future<void> _loadOutstanding() async {
     final studentId = _studentId;
     final familyId = _familyId;
+    final payerType = _payerType;
     if ((_payerType == _PayerType.student && studentId == null) ||
         (_payerType == _PayerType.family && familyId == null)) {
       if (mounted) setState(() {
@@ -102,6 +166,8 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         _credit = 0;
         _payerDues = const [];
         _selectedDues.clear();
+        _feeId = null;
+        _amount.clear();
       });
       return;
     }
@@ -111,12 +177,30 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       final value = _payerType == _PayerType.student
           ? await repo.outstandingForStudent(studentId!)
           : await repo.outstandingForFamily(familyId!);
-      final dues = await repo.unpaidForPayer(studentId:_payerType==_PayerType.student?studentId:null,familyId:_payerType==_PayerType.family?familyId:null);
+      final dues = await repo.unpaidForPayer(studentId:payerType==_PayerType.student?studentId:null,familyId:payerType==_PayerType.family?familyId:null,includePaid:payerType==_PayerType.student);
       final credit = await repo.availableCredit(
         studentId: _payerType == _PayerType.student ? studentId : null,
         familyId: _payerType == _PayerType.family ? familyId : null,
       );
-      if (mounted) setState(() { _outstanding = value; _credit = credit; _payerDues=dues; _selectedDues..clear()..addAll(dues.map((d)=>d.id)); });
+      if (!mounted || payerType != _payerType ||
+          studentId != _studentId || familyId != _familyId) return;
+      setState(() {
+        _outstanding = value;
+        _credit = credit;
+        _payerDues = dues;
+        _selectedDues.clear();
+        if (payerType == _PayerType.family) {
+          _selectedDues.addAll(dues.where((d) => d.balance > 0).map((d) => d.id));
+        } else {
+          final available = dues.where((d) => d.balance > 0).toList();
+          _feeId = available.isNotEmpty ? available.first.feeId :
+              (dues.isNotEmpty ? dues.first.feeId : null);
+          for (final due in available) {
+            if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
+          }
+        }
+        _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      });
     } finally {
       if (mounted) setState(() => _loadingBalance = false);
     }
@@ -158,6 +242,17 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     final payerOk =
         _payerType == _PayerType.student ? _studentId != null : _familyId != null;
     if (!_formKey.currentState!.validate() || !payerOk) return;
+    if (_selectedDues.isEmpty || _selectedRemaining <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sélectionnez une rubrique et une période non soldée.')));
+      return;
+    }
+    final requested = int.tryParse(_amount.text.replaceAll(RegExp(r'\D'), '')) ?? 0;
+    if (requested > _selectedRemaining) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le montant dépasse les périodes choisies. Sélectionnez aussi les autres périodes concernées.')));
+      return;
+    }
     setState(() => _saving = true);
     try {
       final amount = int.parse(_amount.text.replaceAll(RegExp(r'\D'), ''));
@@ -312,6 +407,8 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   Widget build(BuildContext context) {
     final students = ref.watch(studentsProvider);
     final families = ref.watch(familiesProvider);
+    final cycles = ref.watch(cyclesProvider);
+    final classrooms = ref.watch(classroomsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Enregistrer un paiement')),
       body: Form(
@@ -343,24 +440,85 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               },
             ),
             const SizedBox(height: 12),
-            if (_payerType == _PayerType.student)
-              students.when(
-                data: (items) => _StudentSearchField(
-                  students: items,
-                  selectedId: _studentId,
-                  onSelected: (student) {
+            if (_payerType == _PayerType.student) ...[
+              cycles.when(
+                data: (items) => DropdownButtonFormField<String>(
+                  key: const ValueKey('payment_cycle'),
+                  initialValue: items.any((c) => c['id'] == _cycleId) ? _cycleId : null,
+                  decoration: const InputDecoration(
+                    labelText: '1. Cycle *', prefixIcon: Icon(Icons.school_outlined)),
+                  items: items.map((c) => DropdownMenuItem(
+                    value: c['id'] as String, child: Text(c['name'] as String))).toList(),
+                  onChanged: (cycle) {
                     setState(() {
-                      _studentId = student?.id;
+                      _cycleId = cycle;
+                      _classroomId = null;
+                      _studentId = null;
+                      _payerDues = const [];
+                      _selectedDues.clear();
+                      _feeId = null;
                       _outstanding = null;
                       _amount.clear();
                     });
-                    _loadOutstanding();
                   },
                 ),
                 loading: () => const LinearProgressIndicator(),
                 error: (error, _) => Text('$error'),
-              )
-            else
+              ),
+              const SizedBox(height: 12),
+              if (_cycleId != null) classrooms.when(
+                data: (items) {
+                  final filtered = items.where((c) => c.cycleId == _cycleId).toList();
+                  return DropdownButtonFormField<String>(
+                    key: ValueKey('payment_class_${_cycleId}'),
+                    initialValue: filtered.any((c) => c.id == _classroomId)
+                        ? _classroomId : null,
+                    decoration: const InputDecoration(
+                      labelText: '2. Classe / salle *',
+                      prefixIcon: Icon(Icons.meeting_room_outlined)),
+                    items: filtered.map((c) => DropdownMenuItem(
+                      value: c.id, child: Text(c.name))).toList(),
+                    onChanged: (id) {
+                      setState(() {
+                        _classroomId = id;
+                        _studentId = null;
+                        _payerDues = const [];
+                        _selectedDues.clear();
+                        _feeId = null;
+                        _outstanding = null;
+                        _amount.clear();
+                      });
+                    },
+                  );
+                },
+                loading: () => const LinearProgressIndicator(),
+                error: (error, _) => Text('$error'),
+              ),
+              if (_classroomId != null) ...[
+                const SizedBox(height: 12),
+                students.when(
+                  data: (items) => _StudentSearchField(
+                    key: ValueKey('payment_student_${_cycleId}_${_classroomId}'),
+                    students: items.where((s) =>
+                      s.cycleId == _cycleId && s.classroomId == _classroomId).toList(),
+                    selectedId: _studentId,
+                    onSelected: (student) {
+                      setState(() {
+                        _studentId = student?.id;
+                        _outstanding = null;
+                        _amount.clear();
+                        _payerDues = const [];
+                        _selectedDues.clear();
+                        _feeId = null;
+                      });
+                      _loadOutstanding();
+                    },
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                  error: (error, _) => Text('$error'),
+                ),
+              ],
+            ] else
               families.when(
                 data: (items) => items.isEmpty
                     ? const Text(
@@ -388,18 +546,18 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.account_balance_wallet_outlined),
-                  title: const Text('Solde restant dû'),
+                  title: const Text('Solde annuel restant (toutes rubriques)'),
                   subtitle: Text(
                     _outstanding == 0
                         ? 'Aucune échéance impayée'
-                        : 'Les montants supérieurs deviennent un avoir',
+                        : 'Le versement concerne uniquement les périodes cochées.',
                   ),
                   trailing: Text(
                     formatXaf(_outstanding!),
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  onTap: _outstanding! > 0
-                      ? () => _amount.text = _outstanding.toString()
+                  onTap: _selectedRemaining > 0
+                      ? () => _amount.text = _selectedRemaining.toString()
                       : null,
                 ),
               ),
@@ -425,11 +583,62 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            if (_payerDues.isNotEmpty) ...[
-              Text('Échéances à régler',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
-              const SizedBox(height:6),
-              ..._payerDues.map((d)=>CheckboxListTile(dense:true,contentPadding:EdgeInsets.zero,value:_selectedDues.contains(d.id),title:Text('${d.feeName} · ${d.periodKey}'),subtitle:Text('Reste ${formatXaf(d.amountDue-d.amountPaid)}'),onChanged:(v)=>setState(()=>v==true?_selectedDues.add(d.id):_selectedDues.remove(d.id)))),
-              const SizedBox(height:8),
+            if (_payerType == _PayerType.student && _studentId != null &&
+                !_loadingBalance && _payerDues.isEmpty)
+              const Card(child: ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('Aucune échéance disponible'),
+                subtitle: Text('Vérifiez les tarifs et les dates limites configurées. '
+                    'Aucune dette n’est créée lors de l’encaissement.'))),
+            if (_payerType == _PayerType.student && _payerDues.isNotEmpty) ...[
+              Text('4. Rubrique à payer',
+                style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                key: ValueKey('payment_fee_${_studentId}_${_payerDues.length}'),
+                initialValue: _payerDues.any((d) => d.feeId == _feeId)
+                    ? _feeId : null,
+                decoration: const InputDecoration(
+                  labelText: 'Rubrique', prefixIcon: Icon(Icons.category_outlined)),
+                items: {
+                  for (final due in _payerDues) due.feeId!: due.feeName,
+                }.entries.map((entry) => DropdownMenuItem(
+                  value: entry.key, child: Text(entry.value))).toList(),
+                onChanged: _saving ? null : _chooseRubric,
+              ),
+              if (_feeId != null) ...[
+                const SizedBox(height: 12),
+                Text('5. Mois / trimestre / période',
+                  style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                ..._payerDues.where((due) => due.feeId == _feeId).map((due) =>
+                  CheckboxListTile(
+                    dense: true, contentPadding: EdgeInsets.zero,
+                    value: _selectedDues.contains(due.id),
+                    onChanged: due.balance <= 0 || _saving
+                        ? null : (v) => _chooseDue(due, v == true),
+                    title: Text(_periodLabel(due) + (due.balance <= 0 ? ' · Soldé' : '')),
+                    subtitle: Text('Tarif : ${formatXaf(due.amountDue)} · '
+                      'Déjà payé : ${formatXaf(due.amountPaid)} · '
+                      'Reste : ${formatXaf(due.balance)}'
+                      '${_periodDeadline(due)}'),
+                  )),
+              ],
+              Card(child: ListTile(
+                title: const Text('Total des périodes sélectionnées'),
+                trailing: Text(formatXaf(_selectedRemaining),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              )),
+            ] else if (_payerType == _PayerType.family && _payerDues.isNotEmpty) ...[
+              Text('Échéances de la famille',
+                  style: Theme.of(context).textTheme.titleMedium),
+              ..._payerDues.map((d) => CheckboxListTile(
+                dense: true, contentPadding: EdgeInsets.zero,
+                value: _selectedDues.contains(d.id),
+                title: Text('${d.studentName} · ${d.feeName} · ${d.periodKey}'),
+                subtitle: Text('Reste ${formatXaf(d.balance)}'),
+                onChanged: (v) => _chooseDueFamily(d, v == true),
+              )),
             ],
             TextFormField(
               controller: _amount,
@@ -505,7 +714,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             ),
             const SizedBox(height: 22),
             FilledButton.icon(
-              onPressed: _saving ? null : _save,
+              onPressed: _saving || _loadingBalance || _selectedDues.isEmpty ? null : _save,
               icon: const Icon(Icons.check_circle_outline),
               label: Text(
                 _saving ? 'Enregistrement…' : 'Valider le paiement',
@@ -536,6 +745,7 @@ String _normalizeSearch(String value) {
 /// beaucoup plus rapide à utiliser lorsqu'il y a de nombreux élèves.
 class _StudentSearchField extends StatefulWidget {
   const _StudentSearchField({
+    super.key,
     required this.students,
     required this.selectedId,
     required this.onSelected,

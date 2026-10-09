@@ -160,6 +160,14 @@ class JsonDataService {
         sourceTables: rawTables,
         tableManifest: decoded['table_manifest'],
       );
+      final legacyBillingUpgrade = sourceVersion == 29 && currentVersion == 30;
+      if (legacyBillingUpgrade) {
+        final existingRules = await candidate.rawQuery(
+          'SELECT COUNT(*) AS total FROM billing_calendar_rules');
+        if ((existingRules.first['total'] as int) > 0) {
+          throw StateError('Restauration V29 refusée : ce poste possède déjà des règles de facturation V30. Exportez sa sauvegarde avant toute reprise historique.');
+        }
+      }
 
       await candidate.transaction((txn) async {
         // Les FK sont désactivées uniquement sur la base temporaire. Toutes les
@@ -170,7 +178,9 @@ class JsonDataService {
         for (final table in currentTables) {
           final rawRows = table == 'app_users' && preservedAppUsers.isNotEmpty
               ? preservedAppUsers
-              : rawTables[table];
+              : (legacyBillingUpgrade &&
+                 const {'billing_calendar_rules','student_billing_state'}.contains(table)
+                  ? const <Object?>[] : rawTables[table]);
           if (rawRows is! List) throw StateError('Table JSON invalide : $table.');
           for (final rawRow in rawRows) {
             if (rawRow is! Map) throw StateError('Ligne JSON invalide dans $table.');

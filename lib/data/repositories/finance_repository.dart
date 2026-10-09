@@ -3,6 +3,7 @@ import 'package:sqflite_common/utils/utils.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/db/app_database.dart';
+import '../../services/annual_billing_service.dart';
 import '../../core/session/business_write_guard.dart';
 import '../../core/session/operator_session.dart';
 import 'cash_rules.dart';
@@ -36,13 +37,8 @@ class FinanceRepository {
       orderBy: 'start_date DESC',
       limit: 1,
     );
-    if (rows.isNotEmpty) return rows.first;
-    final active = await db.query(
-      'school_years',
-      where: 'is_active = 1',
-      limit: 1,
-    );
-    return active.isEmpty ? null : active.first;
+    // Ne jamais substituer une autre année scolaire : facturation erronée.
+    return rows.isEmpty ? null : rows.first;
   }
 
   // --- Rubriques et grille tarifaire ------------------------------------
@@ -195,6 +191,14 @@ class FinanceRepository {
         'created_at': now.toIso8601String(),
       });
     });
+    // Une fois le tarif enregistré, toutes les inscriptions actives dont
+    // le calendrier est prêt reçoivent leurs échéances manquantes. Les
+    // anciennes lignes et tous les paiements sont préservés.
+    final activeYear = await _activeSchoolYearId(_database.db);
+    if (activeYear != null) {
+      await BillingCalendarRepository(_database)
+          .completePending(includeReady: true);
+    }
   }
 
   Future<List<FeeGridItem>> feeGrid() async {
@@ -235,11 +239,21 @@ class FinanceRepository {
   }) async {
     final db = _database.db;
     final effectiveDate = referenceDate ?? dueDate;
+    if (dueDate.isBefore(effectiveDate)) {
+      throw StateError('La date limite ne peut pas précéder la période facturée.');
+    }
     final schoolYear = await _schoolYearForDate(db, effectiveDate);
     if (schoolYear == null) {
       throw StateError('Créez et activez une année scolaire avant de simuler les échéances.');
     }
     final schoolYearId = schoolYear['id'] as String;
+    final managed = await db.query('billing_calendar_rules', columns:['id'],
+        where:'school_year_id=? AND enabled=1', whereArgs:[schoolYearId], limit:1);
+    final monthlyDates = await db.query('app_settings', columns:['key'],
+        where:'key=?',whereArgs:['billing_month_deadlines:' + schoolYearId],limit:1);
+    if (managed.isNotEmpty || monthlyDates.isNotEmpty) {
+      throw StateError('Cette année scolaire possède un calendrier automatique. Utilisez « Calendrier de facturation » pour compléter les échéanciers sans doublons.');
+    }
     final students = await db.rawQuery('''
       SELECT s.id student_id, s.family_id, se.classroom_id, c.cycle_id
       FROM student_enrollments se
@@ -356,11 +370,21 @@ class FinanceRepository {
     // échéance d'octobre ne doit pas utiliser par erreur le tarif du jour où
     // le gestionnaire lance la génération.
     final effectiveDate = referenceDate ?? dueDate;
+    if (dueDate.isBefore(effectiveDate)) {
+      throw StateError('La date limite ne peut pas précéder la période facturée.');
+    }
     final schoolYear = await _schoolYearForDate(db, effectiveDate);
     if (schoolYear == null) {
       throw StateError('Créez et activez une année scolaire avant de générer les échéances.');
     }
     final schoolYearId = schoolYear['id'] as String;
+    final managed = await db.query('billing_calendar_rules', columns:['id'],
+        where:'school_year_id=? AND enabled=1', whereArgs:[schoolYearId], limit:1);
+    final monthlyDates = await db.query('app_settings', columns:['key'],
+        where:'key=?',whereArgs:['billing_month_deadlines:' + schoolYearId],limit:1);
+    if (managed.isNotEmpty || monthlyDates.isNotEmpty) {
+      throw StateError('Cette année scolaire possède un calendrier automatique. Utilisez « Calendrier de facturation » pour compléter les échéanciers sans doublons.');
+    }
     final schoolYearStart = DateTime.parse(schoolYear['start_date'] as String);
     final schoolYearEnd = DateTime.parse(schoolYear['end_date'] as String);
     if (effectiveDate.isBefore(schoolYearStart) || effectiveDate.isAfter(schoolYearEnd)) {
@@ -648,15 +672,15 @@ class FinanceRepository {
 
   Future<List<Map<String,Object?>>> paymentMethods() => _database.db.query('payment_methods', where:'active = 1', orderBy:'name');
   Future<List<Map<String,Object?>>> cashAccounts() => _database.db.query('cash_accounts', where:'active = 1', orderBy:'name');
-  Future<List<DueItem>> unpaidForPayer({String? studentId,String? familyId}) async {
+  Future<List<DueItem>> unpaidForPayer({String? studentId,String? familyId,bool includePaid=false}) async {
     final yearId = await _activeSchoolYearId(_database.db);
     final yearSql = yearId == null ? '' : ' AND d.school_year_id = ?';
-    final payerArgs = <Object?>[studentId ?? familyId];
+    final payerArgs = <Object?>[studentId ?? familyId, includePaid ? 1 : 0];
     if (yearId != null) payerArgs.add(yearId);
     final rows = studentId != null
-      ? await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.student_id=? AND d.status!='paid' AND (d.package_id IS NULL OR d.package_id NOT IN (SELECT id FROM packages WHERE type='family'))$yearSql ORDER BY d.due_date,d.created_at",payerArgs)
-      : await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.family_id=? AND d.status!='paid'$yearSql ORDER BY d.due_date,d.created_at",payerArgs);
-    return rows.map((r)=>DueItem(id:r['id'] as String,studentId:r['student_id'] as String,studentName:r['student_name'] as String,feeName:r['fee_name'] as String,periodKey:r['period_key'] as String,amountDue:r['amount_due'] as int,amountPaid:r['amount_paid'] as int,status:r['status'] as String,dueDate:r['due_date']==null?null:DateTime.parse(r['due_date'] as String))).toList();
+      ? await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.student_id=? AND ( ? = 1 OR d.status!='paid') AND (d.package_id IS NULL OR d.package_id NOT IN (SELECT id FROM packages WHERE type='family'))$yearSql ORDER BY d.due_date,d.created_at",payerArgs)
+      : await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.family_id=? AND ( ? = 1 OR d.status!='paid')$yearSql ORDER BY d.due_date,d.created_at",payerArgs);
+    return rows.map((r)=>DueItem(id:r['id'] as String,studentId:r['student_id'] as String,studentName:r['student_name'] as String,feeName:r['fee_name'] as String,feeId:r['fee_id'] as String,periodKey:r['period_key'] as String,amountDue:r['amount_due'] as int,amountPaid:r['amount_paid'] as int,status:r['status'] as String,dueDate:r['due_date']==null?null:DateTime.parse(r['due_date'] as String))).toList();
   }
   Future<int> availableCredit({String? studentId,String? familyId}) async => firstIntValue(await _database.db.rawQuery("SELECT COALESCE(SUM(amount),0) FROM payer_credits WHERE status='available' AND ${studentId!=null?'student_id':'family_id'} = ?",[studentId??familyId]))??0;
 

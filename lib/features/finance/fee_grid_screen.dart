@@ -72,6 +72,8 @@ class FeeGridScreen extends ConsumerWidget {
                         ),
                 const SizedBox(height: 10),
                 TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Montant (FCFA)')),
+                const SizedBox(height: 8),
+                const Text('Si les dates limites de cette rubrique sont déjà configurées, le tarif complétera automatiquement les échéanciers des élèves concernés. Les anciens paiements resteront inchangés.'),
                 const SizedBox(height: 10),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
