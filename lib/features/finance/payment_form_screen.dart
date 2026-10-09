@@ -26,6 +26,9 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   _PayerType _payerType = _PayerType.student;
   String? _studentId;
   String? _familyId;
+  String? _cycleId;
+  String? _classroomId;
+  String? _feeId;
   String _method = 'Espèces';
   String? _cashAccountId = 'main_cash';
   List<Map<String, Object?>> _paymentMethods = const [];
@@ -92,9 +95,46 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     super.dispose();
   }
 
+
+  int get _selectedRemaining => _payerDues
+      .where((due) => _selectedDues.contains(due.id))
+      .fold<int>(0, (total, due) => total + due.balance);
+
+  void _chooseRubric(String? feeId) {
+    setState(() {
+      _feeId = feeId;
+      _selectedDues.clear();
+      for (final due in _payerDues) {
+        if (due.feeId == feeId && due.balance > 0) {
+          _selectedDues.add(due.id);
+          break;
+        }
+      }
+      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    });
+  }
+
+  void _chooseDue(DueItem due, bool selected) {
+    if (due.balance <= 0 || due.feeId != _feeId) return;
+    setState(() {
+      if (selected) { _selectedDues.add(due.id); }
+      else { _selectedDues.remove(due.id); }
+      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    });
+  }
+
+  void _chooseDueFamily(DueItem due, bool selected) {
+    setState(() {
+      if (selected) { _selectedDues.add(due.id); }
+      else { _selectedDues.remove(due.id); }
+      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    });
+  }
+
   Future<void> _loadOutstanding() async {
     final studentId = _studentId;
     final familyId = _familyId;
+    final payerType = _payerType;
     if ((_payerType == _PayerType.student && studentId == null) ||
         (_payerType == _PayerType.family && familyId == null)) {
       if (mounted) setState(() {
@@ -102,6 +142,8 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         _credit = 0;
         _payerDues = const [];
         _selectedDues.clear();
+        _feeId = null;
+        _amount.clear();
       });
       return;
     }
@@ -111,12 +153,30 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       final value = _payerType == _PayerType.student
           ? await repo.outstandingForStudent(studentId!)
           : await repo.outstandingForFamily(familyId!);
-      final dues = await repo.unpaidForPayer(studentId:_payerType==_PayerType.student?studentId:null,familyId:_payerType==_PayerType.family?familyId:null);
+      final dues = await repo.unpaidForPayer(studentId:payerType==_PayerType.student?studentId:null,familyId:payerType==_PayerType.family?familyId:null,includePaid:payerType==_PayerType.student);
       final credit = await repo.availableCredit(
         studentId: _payerType == _PayerType.student ? studentId : null,
         familyId: _payerType == _PayerType.family ? familyId : null,
       );
-      if (mounted) setState(() { _outstanding = value; _credit = credit; _payerDues=dues; _selectedDues..clear()..addAll(dues.map((d)=>d.id)); });
+      if (!mounted || payerType != _payerType ||
+          studentId != _studentId || familyId != _familyId) return;
+      setState(() {
+        _outstanding = value;
+        _credit = credit;
+        _payerDues = dues;
+        _selectedDues.clear();
+        if (payerType == _PayerType.family) {
+          _selectedDues.addAll(dues.where((d) => d.balance > 0).map((d) => d.id));
+        } else {
+          final available = dues.where((d) => d.balance > 0).toList();
+          _feeId = available.isNotEmpty ? available.first.feeId :
+              (dues.isNotEmpty ? dues.first.feeId : null);
+          for (final due in available) {
+            if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
+          }
+        }
+        _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      });
     } finally {
       if (mounted) setState(() => _loadingBalance = false);
     }
@@ -158,6 +218,17 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     final payerOk =
         _payerType == _PayerType.student ? _studentId != null : _familyId != null;
     if (!_formKey.currentState!.validate() || !payerOk) return;
+    if (_selectedDues.isEmpty || _selectedRemaining <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sélectionnez une rubrique et une période non soldée.')));
+      return;
+    }
+    final requested = int.tryParse(_amount.text.replaceAll(RegExp(r'\D'), '')) ?? 0;
+    if (requested > _selectedRemaining) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le montant dépasse les périodes choisies. Sélectionnez aussi les autres périodes concernées.')));
+      return;
+    }
     setState(() => _saving = true);
     try {
       final amount = int.parse(_amount.text.replaceAll(RegExp(r'\D'), ''));
@@ -312,6 +383,8 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   Widget build(BuildContext context) {
     final students = ref.watch(studentsProvider);
     final families = ref.watch(familiesProvider);
+    final cycles = ref.watch(cyclesProvider);
+    final classrooms = ref.watch(classroomsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Enregistrer un paiement')),
       body: Form(
