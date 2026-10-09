@@ -213,4 +213,23 @@ void main() {
     }),throwsA(isA<StateError>()));
   });
 
+  test('nouvelle rubrique tarifée : échéancier reconnu pour élèves déjà inscrits', () async {
+    await calendar.saveMonthlyDeadlines({
+      '2026-10':DateTime(2026,10,15),
+    });
+    final id=await students.add(firstName:'Awa',
+      lastName:'Nouveau tarif',classroomId:classroomId);
+    expect((await finance.unpaidForPayer(studentId:id)).length,1);
+    await finance.addFeeCategory(
+      name:'Fournitures mensuelles',periodicity:'mensuelle');
+    final newFee=(await finance.feeCategories()).firstWhere(
+      (fee)=>fee.name=='Fournitures mensuelles');
+    await finance.addFeeGrid(feeId:newFee.id,cycleId:cycleId,
+      amount:4000,validFrom:DateTime(2026,10,1));
+    final dues=await finance.unpaidForPayer(studentId:id);
+    expect(dues.length,2);
+    expect(dues.where((due)=>due.feeId==newFee.id).single.amountDue,4000);
+    expect(dues.fold<int>(0,(sum,due)=>sum+due.balance),34000);
+  });
+
 }
