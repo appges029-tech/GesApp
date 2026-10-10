@@ -14,6 +14,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/cloud/supabase_bootstrap.dart';
 import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
+import '../core/session/tenant_data_isolation.dart';
 import '../core/session/tenant_subscription_access.dart';
 import '../data/repositories/tenant_repository.dart';
 import 'json_data_service.dart';
@@ -471,27 +472,7 @@ class CloudSnapshotService {
     if (snapshot is! Map<String, dynamic>) {
       throw StateError('Snapshot rejeté : contenu invalide.');
     }
-    final tables = snapshot['tables'];
-    final schools = tables is Map ? tables['establishments'] : null;
-    if (schools is! List ||
-        schools.length != 1 ||
-        schools.first is! Map ||
-        schools.first['id']?.toString() != expectedOrg) {
-      throw StateError(
-        'Snapshot cloud isolé pour sécurité : identité scolaire incohérente. '
-        'Ne remplacez pas la sauvegarde et contactez le support.',
-      );
-    }
-    final appSettings = tables['app_settings'];
-    if (appSettings is List) {
-      for (final setting in appSettings) {
-        if (setting is Map &&
-            setting['key'] == 'gesapp.cloud.bound_organization_id.v1' &&
-            setting['value']?.toString() != expectedOrg) {
-          throw StateError('Snapshot rejeté : liaison à une autre école.');
-        }
-      }
-    }
+    TenantDataIsolation.validateSnapshot(snapshot, expectedOrg);
     final tempDir = await getTemporaryDirectory();
     final source = File(p.join(tempDir.path, 'gesapp-cloud-restore-${DateTime.now().millisecondsSinceEpoch}.json'));
     await source.writeAsBytes(plain, flush: true);
