@@ -274,6 +274,8 @@ class TenantCloudService {
   Future<bool> canUnlockCachedManagerOffline() async {
     final cached = await _tenantRepo.cachedMembership();
     if (cached == null || !cached.active || !cached.isManager) return false;
+    // Le code PIN hors ligne doit respecter la même séparation des écoles.
+    await _tenantRepo.ensureOrganizationIsolated(cached.organizationId);
     await TenantSubscriptionAccess.instance.restore(cached.organizationId);
     if (!TenantSubscriptionAccess.instance.isAllowed) return false;
     final username = cached.username?.trim().toLowerCase();
