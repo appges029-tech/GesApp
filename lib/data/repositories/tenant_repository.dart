@@ -2,6 +2,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 
 import '../../core/db/app_database.dart';
 import '../../core/session/operator_session.dart';
+import '../../core/session/tenant_data_isolation.dart';
 
 class TenantMembershipCache {
   const TenantMembershipCache({
@@ -220,13 +221,7 @@ class TenantRepository {
         limit: 1,
       );
       final stored = binding.isEmpty ? null : binding.first['value']?.toString();
-      if (stored != null && stored != organizationId) {
-        throw StateError(
-          'Sécurité : ce téléphone ou ordinateur possède les données d’un '
-          'autre établissement. Connexion et synchronisation refusées. '
-          'Ne supprimez pas la base locale : utilisez une installation séparée.',
-        );
-      }
+      TenantDataIsolation.requireSameTenant(organizationId, stored);
 
       final established = await txn.query('establishments', columns: ['id']);
       if (established.any((row) => row['id']?.toString() != organizationId)) {
