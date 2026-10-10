@@ -294,8 +294,15 @@ class TenantCloudService {
       try {
         final remote = await loadMyMembership();
         if (remote != null) return remote;
-      } catch (_) {
-        // Hors connexion : on poursuit avec le cache local ci-dessous.
+      } catch (error) {
+        // Une erreur d'isolation n'est jamais une panne réseau :
+        // aucune reconnexion via un cache d'une autre école.
+        final details = error.toString();
+        if (details.contains('Sécurité :') ||
+            details.contains('ancienne base scolaire non attribuée')) {
+          rethrow;
+        }
+        // Hors connexion : le cache ne sera accepté que pour le même userId.
       }
     }
     final cached = await _tenantRepo.cachedMembership();
