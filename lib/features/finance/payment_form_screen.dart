@@ -450,6 +450,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             if (_payerType == _PayerType.student) ...[
               cycles.when(
                 data: (items) => DropdownButtonFormField<String>(
+                  isExpanded: true,
                   key: const ValueKey('payment_cycle'),
                   initialValue: items.any((c) => c['id'] == _cycleId) ? _cycleId : null,
                   decoration: const InputDecoration(
@@ -477,6 +478,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 data: (items) {
                   final filtered = items.where((c) => c.cycleId == _cycleId).toList();
                   return DropdownButtonFormField<String>(
+                  isExpanded: true,
                     key: ValueKey('payment_class_${_cycleId}'),
                     initialValue: filtered.any((c) => c.id == _classroomId)
                         ? _classroomId : null,
@@ -608,6 +610,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
+                  isExpanded: true,
                 key: ValueKey('payment_fee_${_studentId}_${_payerDues.length}'),
                 initialValue: _payerDues.any((d) => d.feeId == _feeId)
                     ? _feeId : null,
@@ -673,6 +676,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               const LinearProgressIndicator()
             else ...[
               DropdownButtonFormField<String>(
+                  isExpanded: true,
                 initialValue: _paymentMethods.any((m) => m['name'] == _method) ? _method : null,
                 decoration: const InputDecoration(
                   labelText: 'Mode de paiement',
@@ -692,6 +696,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                  isExpanded: true,
                 initialValue: _cashAccounts.any((a) => a['id'] == _cashAccountId && a['type'] == _methodAccountType) ? _cashAccountId : null,
                 decoration: const InputDecoration(labelText: 'Caisse / compte'),
                 items: _cashAccounts
@@ -726,13 +731,12 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               ),
             ),
             const SizedBox(height: 22),
-            FilledButton.icon(
-              onPressed: _saving || _loadingBalance || _selectedDues.isEmpty ? null : _save,
-              icon: const Icon(Icons.check_circle_outline),
-              label: Text(
-                _saving ? 'Enregistrement…' : 'Valider le paiement',
+            if (!desktopForm)
+              FilledButton.icon(
+                onPressed: _saving || _loadingBalance || _selectedDues.isEmpty ? null : _save,
+                icon: const Icon(Icons.check_circle_outline),
+                label: Text(_saving ? 'Enregistrement…' : 'Valider le paiement'),
               ),
-            ),
         ];
         if (!desktopForm) {
           return ListView(
@@ -758,9 +762,38 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               flex: 5,
               child: WindowsPanel(
                 padding: EdgeInsets.zero,
-                child: ListView(
-                  padding: const EdgeInsets.all(20),
-                  children: checkout,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.all(20),
+                        children: checkout,
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(children: [
+                            const Expanded(child: Text('Périodes sélectionnées',
+                              maxLines: 1, overflow: TextOverflow.ellipsis)),
+                            Text(formatXaf(_selectedRemaining),
+                              style: Theme.of(context).textTheme.titleMedium),
+                          ]),
+                          const SizedBox(height: 10),
+                          FilledButton.icon(
+                            onPressed: _saving || _loadingBalance ||
+                                    _selectedDues.isEmpty ? null : _save,
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: Text(_saving
+                                ? 'Enregistrement…' : 'Valider le paiement'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

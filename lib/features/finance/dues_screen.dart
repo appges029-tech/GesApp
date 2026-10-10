@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/windows/windows_page_scaffold.dart';
+import '../../core/windows/windows_ui.dart';
 import '../../data/models/finance_full.dart';
 
 /// Une échéance future est une obligation programmée, pas un retard.
@@ -37,9 +39,7 @@ class DuesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(unpaidDuesProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Échéanciers et impayés')),
-      body: state.when(
+    final body = state.when(
         data: (items) {
           if (items.isEmpty) {
             return const Center(child: Text('Aucune échéance non réglée.'));
@@ -76,7 +76,17 @@ class DuesScreen extends ConsumerWidget {
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('Erreur : ' + error.toString())),
-      ),
+      );
+    if (WindowsUi.isDesktop(context)) {
+      return WindowsPageScaffold(
+        title: 'Échéanciers et impayés',
+        subtitle: 'Retards, échéances actuelles et obligations futures',
+        body: body,
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('Échéanciers et impayés')),
+      body: body,
     );
   }
 }

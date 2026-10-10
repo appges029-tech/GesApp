@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../core/layout/responsive_layout.dart';
+import '../../core/windows/windows_page_scaffold.dart';
+import '../../core/windows/windows_ui.dart';
 import '../../core/db/app_database.dart';
 import '../../core/session/operator_session.dart';
 import '../../services/annual_billing_service.dart';
@@ -42,7 +45,7 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
       builder:(dialogContext)=>StatefulBuilder(builder:(context,update)=>
         AlertDialog(
           title:const Text('Dates limites mensuelles'),
-          content:SizedBox(width:460,height:440,child:Column(children:[
+          content:ResponsiveDialogBody(maxWidth:460,maxHeight:440,child:Column(children:[
             const Text('Sélectionnez uniquement les mois facturables. '
               'Pour chaque mois, choisissez sa date limite exacte.'),
             const SizedBox(height:10),
@@ -121,7 +124,7 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
     final accepted=await showDialog<bool>(context:context,
       builder:(d)=>StatefulBuilder(builder:(ctx,setD)=>AlertDialog(
         title:Text('Calendrier : '+(fee['fee_name'] as String)),
-        content:SingleChildScrollView(child:Column(
+        content:ResponsiveDialogBody(maxWidth:440,maxHeight:440,child:SingleChildScrollView(child:Column(
           mainAxisSize:MainAxisSize.min,children:[
           Text('Année : '+data.label),
           ListTile(title:Text('Début : '+fmt(from)),onTap:()async{
@@ -149,7 +152,7 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
             decoration:const InputDecoration(
               labelText:'Délai après admission, en jours')),
           const Text('Les anciennes écritures financières seront conservées.'),
-        ])),
+        ]))),
         actions:[TextButton(onPressed:()=>Navigator.pop(d,false),
           child:const Text('Annuler')),
           FilledButton(onPressed:()=>Navigator.pop(d,true),
@@ -197,9 +200,8 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
     finally{if(mounted)setState(()=>busy=false);}
   }
   @override
-  Widget build(BuildContext context)=>Scaffold(
-    appBar:AppBar(title:const Text('Calendrier de facturation')),
-    body:FutureBuilder<BillingCalendarConfiguration>(future:future,
+  Widget build(BuildContext context) {
+    final body = FutureBuilder<BillingCalendarConfiguration>(future:future,
       builder:(context,snap){
         if(snap.hasError)return Center(child:Text(snap.error.toString()));
         if(!snap.hasData)return const Center(child:CircularProgressIndicator());
@@ -241,6 +243,18 @@ class _BillingCalendarScreenState extends State<BillingCalendarScreen> {
           if(OperatorSession.isReadOnly)
             const Text('Lecture seule : connectez un gestionnaire.'),
         ]);
-      }),
-  );
+      });
+    if (WindowsUi.isDesktop(context)) {
+      return WindowsPageScaffold(
+        title: 'Calendrier de facturation',
+        subtitle: 'Mois facturables, dates butoirs et règles scolaires',
+        maxWidth: WindowsUi.formMaxWidth,
+        body: body,
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('Calendrier de facturation')),
+      body: body,
+    );
+  }
 }

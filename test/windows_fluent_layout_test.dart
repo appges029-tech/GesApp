@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gesapp/core/windows/windows_page_scaffold.dart';
 import 'package:gesapp/core/windows/windows_panels.dart';
 import 'package:gesapp/core/windows/windows_ui.dart';
+import 'package:gesapp/core/layout/responsive_layout.dart';
 import 'package:gesapp/core/theme/app_theme.dart';
 import 'package:gesapp/features/finance/finance_screen.dart';
 
@@ -121,4 +122,99 @@ void main() {
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
   });
+  testWidgets('Monthly calendar dialogs do not overflow scaled Windows viewports', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final sizes = <(Size, double)>[
+      (const Size(1366, 768), 1.25),
+      (const Size(1366, 768), 1.5),
+      (const Size(1280, 720), 1.25),
+      (const Size(1920, 1080), 1),
+      (const Size(480, 620), 1),
+    ];
+    for (final setup in sizes) {
+      tester.view.physicalSize = setup.$1;
+      tester.view.devicePixelRatio = setup.$2;
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.windowsLight,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(child: FilledButton(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Dates limites mensuelles'),
+                  content: ResponsiveDialogBody(
+                    maxWidth: 460,
+                    maxHeight: 440,
+                    child: Column(children: [
+                      const Text('Choisissez une date pour chaque mois payable'),
+                      Expanded(child: ListView(children: [
+                        for (var i = 0; i < 12; i++)
+                          ListTile(title: Text('Mois $i'), trailing: const Icon(Icons.event)),
+                      ])),
+                    ]),
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context),
+                      child: const Text('Annuler')),
+                    FilledButton(onPressed: () => Navigator.pop(context),
+                      child: const Text('Enregistrer')),
+                  ],
+                ),
+              ),
+              child: const Text('Ouvrir'),
+            )),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('Ouvrir'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dates limites mensuelles'), findsOneWidget);
+      expect(tester.takeException(), isNull,
+        reason: 'Dialog at ${setup.$1} / scale ${setup.$2}');
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Narrow desktop tables scroll without shrinking payment columns', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(1024, 720);
+    tester.view.devicePixelRatio = 1.25;
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.windowsLight,
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(width: 650, height: 340,
+            child: WindowsPanel(
+              padding: EdgeInsets.zero,
+              child: WindowsAdaptiveTable(
+                minWidth: 1080,
+                child: Column(children: [
+                  const SizedBox(height: 40, child: Text('Référence de paiement')),
+                  Expanded(child: ListView(children: const [
+                    ListTile(title: Text('Paiement contrôle')),
+                    ListTile(title: Text('Paiement long intitulé')),
+                  ])),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    expect(find.text('Référence de paiement'), findsOneWidget);
+    expect(find.byType(SingleChildScrollView), findsWidgets);
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
 }

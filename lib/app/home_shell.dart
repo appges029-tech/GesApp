@@ -36,6 +36,8 @@ class _NavEntry {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+  // Load modules on first visit; keep their state mounted afterwards.
+  final Set<int> _visitedModules = {0};
 
   @override
   void initState() {
@@ -76,7 +78,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   void _select(int value) {
     if (value < 0 || value >= _entries.length) return;
-    setState(() => _index = value);
+    setState(() {
+      _index = value;
+      _visitedModules.add(value);
+    });
     unawaited(PlatformTelemetryService.instance.moduleOpened(_entries[value].label));
   }
 
@@ -142,8 +147,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (selected != null && mounted) _select(selected);
   }
 
-  Widget _pageContent(List<Widget> pages) =>
-      IndexedStack(index: _index, children: pages);
+  Widget _pageContent(List<Widget> pages) => IndexedStack(
+    index: _index,
+    children: [
+      for (var index = 0; index < pages.length; index++)
+        _visitedModules.contains(index)
+            ? pages[index]
+            : const SizedBox.shrink(),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
