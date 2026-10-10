@@ -63,6 +63,24 @@ class CloudSnapshotService {
     final orgId = OperatorSession.organizationId;
     if (orgId == null) return;
 
+    // Defense in depth: never publish a shared SQLite database under a
+    // different school identity. Stop *before* reading cloud metadata.
+    try {
+      await _tenant.ensureOrganizationIsolated(orgId);
+      final cloudUser = SupabaseBootstrap.client.auth.currentUser;
+      if (cloudUser != null &&
+          OperatorSession.cloudUserId != null &&
+          cloudUser.id != OperatorSession.cloudUserId) {
+        throw StateError('Le compte Supabase a changé : reconnectez-vous.');
+      }
+    } catch (error) {
+      status.value = CloudSyncStatus(
+        state: 'blocked',
+        message: 'Isolation des établissements : $error',
+      );
+      return;
+    }
+
     _running = true;
     status.value = const CloudSyncStatus(
       state: 'restoring',
@@ -116,6 +134,24 @@ class CloudSnapshotService {
     final orgId = OperatorSession.organizationId;
     if (orgId == null) return;
 
+    // Defense in depth: never publish a shared SQLite database under a
+    // different school identity. Stop *before* reading cloud metadata.
+    try {
+      await _tenant.ensureOrganizationIsolated(orgId);
+      final cloudUser = SupabaseBootstrap.client.auth.currentUser;
+      if (cloudUser != null &&
+          OperatorSession.cloudUserId != null &&
+          cloudUser.id != OperatorSession.cloudUserId) {
+        throw StateError('Le compte Supabase a changé : reconnectez-vous.');
+      }
+    } catch (error) {
+      status.value = CloudSyncStatus(
+        state: 'blocked',
+        message: 'Isolation des établissements : $error',
+      );
+      return;
+    }
+
     _running = true;
     try {
       final metadata = await _remoteMetadata(orgId);
@@ -157,6 +193,24 @@ class CloudSnapshotService {
     if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
     final orgId = OperatorSession.organizationId;
     if (orgId == null) return;
+
+    // Defense in depth: never publish a shared SQLite database under a
+    // different school identity. Stop *before* reading cloud metadata.
+    try {
+      await _tenant.ensureOrganizationIsolated(orgId);
+      final cloudUser = SupabaseBootstrap.client.auth.currentUser;
+      if (cloudUser != null &&
+          OperatorSession.cloudUserId != null &&
+          cloudUser.id != OperatorSession.cloudUserId) {
+        throw StateError('Le compte Supabase a changé : reconnectez-vous.');
+      }
+    } catch (error) {
+      status.value = CloudSyncStatus(
+        state: 'blocked',
+        message: 'Isolation des établissements : $error',
+      );
+      return;
+    }
     _running = true;
     status.value = const CloudSyncStatus(state: 'syncing', message: 'Synchronisation en cours…');
     try {
@@ -407,6 +461,37 @@ class CloudSnapshotService {
     }
     final compressed = await _decrypt(encrypted, backupSecret);
     final plain = Uint8List.fromList(gzip.decode(compressed));
+    // Prevent a contaminated or cross-school cloud snapshot from ever being
+    // applied to the local SQLite file, even when a valid key can decrypt it.
+    final expectedOrg = OperatorSession.organizationId;
+    if (expectedOrg == null || !path.startsWith('$expectedOrg/')) {
+      throw StateError('Snapshot rejeté : établissement ou chemin non conforme.');
+    }
+    final snapshot = jsonDecode(utf8.decode(plain));
+    if (snapshot is! Map<String, dynamic>) {
+      throw StateError('Snapshot rejeté : contenu invalide.');
+    }
+    final tables = snapshot['tables'];
+    final schools = tables is Map ? tables['establishments'] : null;
+    if (schools is! List ||
+        schools.length != 1 ||
+        schools.first is! Map ||
+        schools.first['id']?.toString() != expectedOrg) {
+      throw StateError(
+        'Snapshot cloud isolé pour sécurité : identité scolaire incohérente. '
+        'Ne remplacez pas la sauvegarde et contactez le support.',
+      );
+    }
+    final appSettings = tables['app_settings'];
+    if (appSettings is List) {
+      for (final setting in appSettings) {
+        if (setting is Map &&
+            setting['key'] == 'gesapp.cloud.bound_organization_id.v1' &&
+            setting['value']?.toString() != expectedOrg) {
+          throw StateError('Snapshot rejeté : liaison à une autre école.');
+        }
+      }
+    }
     final tempDir = await getTemporaryDirectory();
     final source = File(p.join(tempDir.path, 'gesapp-cloud-restore-${DateTime.now().millisecondsSinceEpoch}.json'));
     await source.writeAsBytes(plain, flush: true);
@@ -418,6 +503,8 @@ class CloudSnapshotService {
       } finally {
         await AppDatabase.instance.initialize();
       }
+      // An older JSON snapshot might predate the persistent school binding.
+      await _tenant.ensureOrganizationIsolated(expectedOrg);
       final localRevision = await _tenant.localRevision();
       await _tenant.updateSyncState(
         lastUploadedLocalRevision: localRevision,
