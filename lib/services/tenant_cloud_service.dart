@@ -7,6 +7,7 @@ import '../core/cloud/supabase_config.dart';
 import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
 import '../core/security/manager_password_policy.dart';
+import 'device_quick_unlock_service.dart';
 import '../core/session/tenant_subscription_access.dart';
 import '../data/repositories/security_repository.dart';
 import '../data/repositories/tenant_repository.dart';
@@ -277,6 +278,10 @@ class TenantCloudService {
       throw StateError('Le nouveau mot de passe est enregistré, mais la confirmation du compte a échoué. Reconnectez-vous en ligne.');
     }
     await _cacheLocalCredential(membership, newPassword);
+    // A password rotation revokes previously enrolled on-device shortcuts.
+    // Re-enrollment requires the freshly validated primary password.
+    await DeviceQuickUnlockService.instance.clearProfile(
+      membership.organizationId, membership.cloudUserId);
     return membership;
   }
 
