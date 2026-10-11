@@ -68,7 +68,7 @@ class _PatternInputState extends State<PatternInput> {
             child: CustomPaint(
               size: _size,
               painter: _PatternPainter(
-                chosen: _selected,
+                chosen: List<int>.unmodifiable(_selected),
                 cursor: _cursor,
                 color: Theme.of(context).colorScheme.primary,
                 neutral: Theme.of(context).colorScheme.outline,
