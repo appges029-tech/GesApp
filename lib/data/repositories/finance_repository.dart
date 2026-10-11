@@ -880,16 +880,35 @@ class FinanceRepository {
   /// Encaissement pour un élève individuel. Pour cette release candidate,
   /// toute avance non allouée est interdite : un paiement doit correspondre
   /// à des échéances existantes et ne peut pas dépasser le solde restant.
-  Future<String> recordPayment({required String studentId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator}) async {
+  Future<String> recordPayment({required String studentId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator, String? operationId}) async {
     _requireCollectionPermission();
     if (amount <= 0) throw ArgumentError.value(amount, 'amount', 'Le montant doit être positif');
     final db = _database.db;
     final now = DateTime.now();
-    final id = _uuid.v4();
+    final id = operationId ?? _uuid.v4();
+    if (operationId != null && operationId.trim().isEmpty) {
+      throw ArgumentError('Identifiant d’opération invalide.');
+    }
     late String receipt;
     await db.transaction((txn) async {
       final yearId = await _activeSchoolYearId(txn);
       if (yearId == null) throw StateError('Aucune année scolaire active.');
+      // Retrying the same device operation must return its original receipt
+      // without inserting a second payment, allocation or cash movement.
+      if (operationId != null) {
+        final existing = await txn.query('payments',
+          columns: ['receipt_number', 'student_id', 'amount', 'payment_method'],
+          where: 'id=?', whereArgs: [operationId], limit: 1);
+        if (existing.isNotEmpty) {
+          final recorded = existing.single;
+          if (recorded['student_id'] != studentId ||
+              recorded['amount'] != amount || recorded['payment_method'] != method) {
+            throw StateError('Cette opération a déjà été validée avec un autre montant ou bénéficiaire.');
+          }
+          receipt = recorded['receipt_number'] as String;
+          return;
+        }
+      }
       final outstanding = firstIntValue(await txn.rawQuery('''
         SELECT COALESCE(SUM(amount_due - amount_paid), 0)
         FROM dues
@@ -964,16 +983,35 @@ class FinanceRepository {
   /// échéances de tous les enfants de la famille, de la plus ancienne à la
   /// plus récente, ce qui évite d'avoir à encaisser élève par élève pour une
   /// fratrie.
-  Future<String> recordFamilyPayment({required String familyId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator}) async {
+  Future<String> recordFamilyPayment({required String familyId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator, String? operationId}) async {
     _requireCollectionPermission();
     if (amount <= 0) throw ArgumentError.value(amount, 'amount', 'Le montant doit être positif');
     final db = _database.db;
     final now = DateTime.now();
-    final id = _uuid.v4();
+    final id = operationId ?? _uuid.v4();
+    if (operationId != null && operationId.trim().isEmpty) {
+      throw ArgumentError('Identifiant d’opération invalide.');
+    }
     late String receipt;
     await db.transaction((txn) async {
       final yearId = await _activeSchoolYearId(txn);
       if (yearId == null) throw StateError('Aucune année scolaire active.');
+      // Retrying the same device operation must return its original receipt
+      // without inserting a second payment, allocation or cash movement.
+      if (operationId != null) {
+        final existing = await txn.query('payments',
+          columns: ['receipt_number', 'family_id', 'amount', 'payment_method'],
+          where: 'id=?', whereArgs: [operationId], limit: 1);
+        if (existing.isNotEmpty) {
+          final recorded = existing.single;
+          if (recorded['family_id'] != familyId ||
+              recorded['amount'] != amount || recorded['payment_method'] != method) {
+            throw StateError('Cette opération a déjà été validée avec un autre montant ou bénéficiaire.');
+          }
+          receipt = recorded['receipt_number'] as String;
+          return;
+        }
+      }
       final outstanding = firstIntValue(await txn.rawQuery(
             "SELECT COALESCE(SUM(amount_due - amount_paid), 0) FROM dues WHERE family_id = ? AND school_year_id = ? AND status != 'paid'",
             [familyId, yearId],
