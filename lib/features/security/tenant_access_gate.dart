@@ -471,10 +471,10 @@ class _MandatoryPasswordChangeScreenState extends State<_MandatoryPasswordChange
     }
     setState(() { _busy = true; _error = null; });
     try {
-      await TenantCloudService.instance.changeOwnPassword(_currentPassword.text, candidate);
-      final membership = await TenantCloudService.instance.loadMyMembership();
-      if (membership == null) throw StateError('Session introuvable après changement du mot de passe.');
+      final membership = await TenantCloudService.instance.changeOwnPassword(_currentPassword.text, candidate);
+      if (!mounted) return;
       widget.onChanged(membership);
+      unawaited(CloudSnapshotService.instance.synchronize());
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
