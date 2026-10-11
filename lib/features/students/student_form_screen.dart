@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/layout/responsive_layout.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
@@ -126,7 +127,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
       ref.invalidate(auditEntriesProvider);
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enregistrement impossible : $error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Inscription non enregistrée : ${FriendlyError.message(error)}')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
