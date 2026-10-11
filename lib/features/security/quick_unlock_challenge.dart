@@ -11,12 +11,14 @@ class QuickUnlockChallenge extends StatefulWidget {
     required this.profile,
     required this.onUnlocked,
     this.onUsePassword,
+    this.verifyAndUnlock,
   });
 
   final String organizationId, cloudUserId;
   final DeviceUnlockProfile profile;
   final VoidCallback onUnlocked;
   final VoidCallback? onUsePassword;
+  final Future<bool> Function(Future<bool> Function())? verifyAndUnlock;
 
   @override
   State<QuickUnlockChallenge> createState() => _QuickUnlockChallengeState();
@@ -30,7 +32,7 @@ class _QuickUnlockChallengeState extends State<QuickUnlockChallenge> {
     if (_busy) return;
     setState(() { _busy = true; _error = null; });
     try {
-      final accepted = await verifier();
+      final accepted = await (widget.verifyAndUnlock?.call(verifier) ?? verifier());
       if (!mounted) return;
       if (accepted) {
         widget.onUnlocked();
