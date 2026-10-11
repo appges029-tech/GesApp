@@ -26,15 +26,21 @@ class FinanceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = <Widget>[
-      _module(context, Icons.payments_outlined, 'Encaisser un paiement',
-        'Choisir l’élève et enregistrer directement', const PaymentFormScreen()),
+      if (OperatorSession.isManager)
+        _module(context, Icons.payments_outlined, 'Encaisser un paiement',
+          'Choisir l’élève et enregistrer directement', const PaymentFormScreen()),
       _module(context, Icons.receipt_long_outlined, 'Paiements et reçus',
-        'Rechercher, réimprimer ou rembourser', const PaymentsScreen()),
+        OperatorSession.isManager
+          ? 'Rechercher, réimprimer ou rembourser'
+          : 'Consulter et réimprimer les reçus', const PaymentsScreen()),
       _module(context, Icons.account_balance_wallet_outlined, 'Caisse et clôture',
-        'Contrôler les opérations et le solde de caisse', const CashScreen()),
+        OperatorSession.isManager
+          ? 'Ouvrir, clôturer et consulter la caisse'
+          : 'Consulter le solde et les mouvements', const CashScreen()),
       _module(context, Icons.warning_amber_rounded, 'Suivi des impayés',
         'Retards et sommes restant à régler', const DuesScreen()),
-      _module(context, Icons.phone_in_talk_outlined, 'Recouvrement',
+      if (OperatorSession.isManager)
+        _module(context, Icons.phone_in_talk_outlined, 'Recouvrement',
         'Relances et suivi des engagements', const RecoveryScreen()),
     ];
     final configuration = <Widget>[
@@ -42,7 +48,8 @@ class FinanceScreen extends StatelessWidget {
         'Définir les types de frais', const FeeCategoriesScreen()),
       _module(context, Icons.price_change_outlined, 'Grille tarifaire',
         'Tarifs par cycle ou par classe', const FeeGridScreen()),
-      _module(context, Icons.workspace_premium_outlined, 'Forfaits et remises',
+      if (OperatorSession.isManager)
+        _module(context, Icons.workspace_premium_outlined, 'Forfaits et remises',
         'Ajustements autorisés', const PackagesScreen()),
     ];
     final accounting = <Widget>[
@@ -50,11 +57,13 @@ class FinanceScreen extends StatelessWidget {
         'Journaux, grand-livre et balance', const AccountingScreen()),
       _module(context, Icons.local_shipping_outlined, 'Dettes fournisseurs',
         'Factures et règlements fournisseurs', const SupplierAccountingScreen()),
-      _module(context, Icons.edit_note_outlined, 'Écritures manuelles',
+      if (OperatorSession.isManager)
+        _module(context, Icons.edit_note_outlined, 'Écritures manuelles',
         'Saisie contrôlée', const ManualJournalEntryScreen()),
       _module(context, Icons.account_balance_outlined, 'Rapprochement bancaire',
         'Comparer les mouvements', const BankReconciliationScreen()),
-      _module(context, Icons.tune_outlined, 'Paramétrage comptable',
+      if (OperatorSession.isManager)
+        _module(context, Icons.tune_outlined, 'Paramétrage comptable',
         'Comptes et affectations', const AccountingSettingsScreen()),
       _module(context, Icons.verified_user_outlined, 'Vérifier un reçu',
         'Authenticité des documents', const ReceiptVerificationScreen()),
@@ -62,7 +71,9 @@ class FinanceScreen extends StatelessWidget {
 
     return WindowsPageScaffold(
       title: 'Finances',
-      subtitle: 'Encaissements, périodes dues, caisse, recouvrement et comptabilité',
+      subtitle: OperatorSession.isManager
+        ? 'Encaissements, périodes dues, caisse et comptabilité'
+        : 'Consultation financière et suivi de l’établissement',
       body: ListView(
         padding: WindowsUi.isDesktop(context) ? EdgeInsets.zero : const EdgeInsets.all(16),
         children: [
