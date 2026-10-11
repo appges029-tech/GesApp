@@ -53,7 +53,7 @@ class DuesScreen extends ConsumerWidget {
                       const Icon(Icons.event_available_outlined, size: 44),
                       const SizedBox(height: 12),
                       Text(
-                        'Aucune échéance non réglée',
+                        'Aucune période impayée',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
@@ -97,8 +97,8 @@ class DuesScreen extends ConsumerWidget {
                 'comme des retards.'))),
             _section('En retard', past, emphasize: true),
             _section('À régler aujourd’hui', todayDues),
-            _section('Échéances futures', upcoming),
-            _section('À vérifier : sans date limite', undated),
+            _section('Périodes à venir', upcoming),
+            _section('Périodes sans date limite', undated),
           ]);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
