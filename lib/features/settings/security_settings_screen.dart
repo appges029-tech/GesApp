@@ -17,6 +17,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _managers = const [];
   String? _error;
+  bool _resetInProgress = false;
 
   @override
   void initState() {
@@ -47,9 +48,18 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   String _temporaryPassword() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#';
+    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowercase = 'abcdefghijkmnopqrstuvwxyz';
+    const digits = '23456789';
+    const all = uppercase + lowercase + digits + '!@#';
     final random = Random.secure();
-    return List.generate(12, (_) => chars[random.nextInt(chars.length)]).join();
+    final characters = <String>[
+      uppercase[random.nextInt(uppercase.length)],
+      lowercase[random.nextInt(lowercase.length)],
+      digits[random.nextInt(digits.length)],
+      ...List.generate(9, (_) => all[random.nextInt(all.length)]),
+    ]..shuffle(random);
+    return characters.join();
   }
 
   Future<void> _createManager() async {
@@ -150,33 +160,73 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   Future<void> _resetPassword(Map<String, dynamic> manager) async {
+    if (_resetInProgress) return;
     final password = TextEditingController(text: _temporaryPassword());
+    bool obscure = true;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Réinitialiser — ${manager['display_name']}'),
-        content: TextField(controller: password, decoration: const InputDecoration(labelText: 'Nouveau mot de passe temporaire')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Réinitialiser')),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: Text('Réinitialiser — ${manager['display_name']}'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Le code actuel sera remplacé côté serveur. '
+              'Le gestionnaire devra le modifier à la prochaine connexion en ligne.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: password,
+              obscureText: obscure,
+              decoration: InputDecoration(
+                labelText: 'Mot de passe temporaire',
+                helperText: '10 caractères, majuscule, minuscule et chiffre',
+                suffixIcon: IconButton(
+                  tooltip: obscure ? 'Afficher le code' : 'Masquer le code',
+                  onPressed: () => update(() => obscure = !obscure),
+                  icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => update(() => password.text = _temporaryPassword()),
+              icon: const Icon(Icons.casino_outlined),
+              label: const Text('Générer un autre code'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Réinitialiser')),
+          ],
+        ),
       ),
     );
-    if (ok == true) {
-      try {
-        await TenantCloudService.instance.resetManagerPassword(manager['id'].toString(), password.text);
-        if (!mounted) return;
-        final secret = password.text;
-        await showDialog<void>(context: context, builder: (context) => AlertDialog(
-          title: const Text('Mot de passe réinitialisé'),
-          content: SelectableText(secret, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-          actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer'))],
-        ));
-      } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
-    }
+    if (ok != true) { password.dispose(); return; }
+    final secret = password.text;
     password.dispose();
+    setState(() => _resetInProgress = true);
+    try {
+      await TenantCloudService.instance.resetManagerPassword(manager['id'].toString(), secret);
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Mot de passe réinitialisé'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('À transmettre de façon confidentielle au gestionnaire :'),
+            const SizedBox(height: 12),
+            SelectableText(secret, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            const Text('Les anciens codes locaux ne peuvent pas être révoqués '
+              'sur un appareil totalement hors ligne. Une reconnexion est nécessaire.'),
+          ]),
+          actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('J’ai noté le code'))],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _resetInProgress = false);
+    }
   }
 
   @override
@@ -217,6 +267,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                   subtitle: Text('@${manager['username'] ?? '—'}${manager['active'] == true ? '' : ' · Désactivé'}${manager['must_change_password'] == true ? ' · Mot de passe temporaire' : ''}'),
                   trailing: PopupMenuButton<String>(
                     onSelected: (value) {
+                      if (_resetInProgress) return;
                       if (value == 'reset') _resetPassword(manager);
                       if (value == 'toggle') _toggle(manager);
                     },
