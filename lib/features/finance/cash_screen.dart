@@ -57,32 +57,49 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   }
 
   Future<int?> _amount(String title) async {
-    final controller = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    String input = '';
+    String? validationError;
+    return showDialog<int>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Montant FCFA'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) => AlertDialog(
+          title: Text(title),
+          content: TextFormField(
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: 'Montant FCFA',
+              errorText: validationError,
+            ),
+            onChanged: (value) => input = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = int.tryParse(input.replaceAll(RegExp(r'\D'), ''));
+                if (value == null || value < 0) {
+                  refresh(() => validationError = 'Saisissez un montant valide.');
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Valider'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Valider')),
-        ],
       ),
     );
-    final value = int.tryParse(controller.text.replaceAll(RegExp(r'\D'), ''));
-    controller.dispose();
-    return confirmed == true ? value : null;
   }
 
   Future<void> _openCash() async {
     final account = _account;
     if (account == null) return;
     final amount = await _amount('Fond initial');
-    if (amount == null) return;
+    if (amount == null || !mounted) return;
     try {
       await ref.read(cashRepositoryProvider).open(accountId: account, openingAmount: amount);
       await _load();
@@ -95,7 +112,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
     final session = _session;
     if (session == null) return;
     final physical = await _amount('Comptage physique');
-    if (physical == null) return;
+    if (physical == null || !mounted) return;
     try {
       await ref.read(cashRepositoryProvider).close(
             sessionId: session['id'] as String,
@@ -114,58 +131,73 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   Future<void> _transfer() async {
     final from = _transferFrom;
     final to = _transferTo;
-    if (from == null || to == null) return;
-    final amountController = TextEditingController();
-    final referenceController = TextEditingController();
-    final noteController = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    if (from == null || to == null || from == to || _busy) return;
+    String rawAmount = '';
+    String reference = '';
+    String note = '';
+    String? error;
+    final input = await showDialog<Map<String, String>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Transfert interne'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountController,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) => AlertDialog(
+          title: const Text('Transfert interne'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextFormField(
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Montant *'),
+                decoration: InputDecoration(labelText: 'Montant *', errorText: error),
+                onChanged: (value) => rawAmount = value,
               ),
               const SizedBox(height: 12),
-              TextField(controller: referenceController, decoration: const InputDecoration(labelText: 'Référence')),
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'Référence'),
+                onChanged: (value) => reference = value,
+              ),
               const SizedBox(height: 12),
-              TextField(controller: noteController, decoration: const InputDecoration(labelText: 'Note')),
-            ],
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'Note'),
+                onChanged: (value) => note = value,
+              ),
+            ]),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final amount = int.tryParse(rawAmount.replaceAll(RegExp(r'\D'), ''));
+                if (amount == null || amount <= 0) {
+                  refresh(() => error = 'Saisissez un montant supérieur à zéro.');
+                  return;
+                }
+                Navigator.pop(dialogContext, {
+                  'amount': amount.toString(),
+                  'reference': reference,
+                  'note': note,
+                });
+              },
+              child: const Text('Transférer'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Transférer')),
-        ],
       ),
     );
-    final amount = int.tryParse(amountController.text.replaceAll(RegExp(r'\D'), '')) ?? 0;
-    final reference = referenceController.text;
-    final note = noteController.text;
-    amountController.dispose();
-    referenceController.dispose();
-    noteController.dispose();
-    if (confirmed != true || amount <= 0) return;
+    if (input == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await ref.read(cashRepositoryProvider).transfer(
-            fromAccountId: from,
-            toAccountId: to,
-            amount: amount,
-            reference: reference,
-            note: note,
-          );
+        fromAccountId: from,
+        toAccountId: to,
+        amount: int.parse(input['amount']!),
+        reference: input['reference'] ?? '',
+        note: input['note'] ?? '',
+      );
       ref.invalidate(auditEntriesProvider);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Transfert de ${formatXaf(amount)} enregistré.')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Transfert de ${formatXaf(int.parse(input['amount']!))} enregistré.')),
+      );
       await _load();
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
