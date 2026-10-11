@@ -1,8 +1,7 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import '../../core/session/business_write_guard.dart';
+import '../../core/security/manager_password_policy.dart';
 import '../../core/session/operator_session.dart';
 import '../../services/tenant_cloud_service.dart';
 
@@ -47,20 +46,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
     }
   }
 
-  String _temporaryPassword() {
-    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    const lowercase = 'abcdefghijkmnopqrstuvwxyz';
-    const digits = '23456789';
-    const all = uppercase + lowercase + digits + '!@#';
-    final random = Random.secure();
-    final characters = <String>[
-      uppercase[random.nextInt(uppercase.length)],
-      lowercase[random.nextInt(lowercase.length)],
-      digits[random.nextInt(digits.length)],
-      ...List.generate(9, (_) => all[random.nextInt(all.length)]),
-    ]..shuffle(random);
-    return characters.join();
-  }
+  String _temporaryPassword() => ManagerPasswordPolicy.generateTemporary();
 
   Future<void> _createManager() async {
     BusinessWriteGuard.ensureTenantAdmin();
