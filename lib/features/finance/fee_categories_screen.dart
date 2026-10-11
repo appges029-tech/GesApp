@@ -7,58 +7,75 @@ import '../../data/models/finance.dart';
 class FeeCategoriesScreen extends ConsumerWidget {
   const FeeCategoriesScreen({super.key});
 
-  Future<void> _add(BuildContext context, WidgetRef ref) async {
-    final name = TextEditingController();
-    String periodicity = 'mensuelle';
-    final save = await showDialog<bool>(
+  Future<Map<String, String>?> _categoryDialog(
+    BuildContext context, {
+    required String title,
+    String initialName = '',
+    String initialPeriodicity = 'mensuelle',
+  }) async {
+    String name = initialName;
+    String periodicity = initialPeriodicity;
+    String? error;
+    return showDialog<Map<String, String>>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Nouvelle rubrique'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(
-                  labelText: 'Nom',
-                  hintText: 'Frais de scolarité',
-                ),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, update) => AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextFormField(
+                initialValue: initialName,
+                decoration: InputDecoration(labelText: 'Nom *', errorText: error),
+                onChanged: (value) => name = value,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: periodicity,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Périodicité'),
-                items: const ['mensuelle', 'trimestrielle', 'annuelle', 'unique']
-                    .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                    .toList(),
+                items: const [
+                  DropdownMenuItem(value: 'mensuelle', child: Text('Mensuelle')),
+                  DropdownMenuItem(value: 'trimestrielle', child: Text('Trimestrielle')),
+                  DropdownMenuItem(value: 'annuelle', child: Text('Annuelle')),
+                  DropdownMenuItem(value: 'unique', child: Text('Paiement unique')),
+                ],
                 onChanged: (value) {
-                  if (value != null) setState(() => periodicity = value);
+                  if (value != null) update(() => periodicity = value);
                 },
               ),
-            ],
+              const SizedBox(height: 8),
+              const Text(
+                'Les périodes de paiement seront proposées automatiquement '
+                'à partir du tarif et de l’année scolaire.',
+              ),
+            ]),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Annuler'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
             FilledButton(
-              onPressed: () => Navigator.pop(context, name.text.trim().isNotEmpty),
-              child: const Text('Créer'),
+              onPressed: () {
+                if (name.trim().isEmpty) {
+                  update(() => error = 'Le nom est obligatoire.');
+                  return;
+                }
+                Navigator.pop(dialogContext, {'name': name.trim(), 'periodicity': periodicity});
+              },
+              child: const Text('Enregistrer'),
             ),
           ],
         ),
       ),
     );
-    final value = name.text;
-    name.dispose();
-    if (save != true) return;
+  }
+
+  Future<void> _add(BuildContext context, WidgetRef ref) async {
+    final input = await _categoryDialog(context, title: 'Nouvelle rubrique');
+    if (input == null || !context.mounted) return;
     try {
       await ref.read(financeRepositoryProvider).addFeeCategory(
-            name: value,
-            periodicity: periodicity,
-          );
+        name: input['name']!,
+        periodicity: input['periodicity']!,
+      );
       ref.invalidate(feeCategoriesProvider);
       ref.invalidate(auditEntriesProvider);
     } catch (error) {
@@ -70,10 +87,30 @@ class FeeCategoriesScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _edit(BuildContext context,WidgetRef ref,FeeCategoryItem item) async {
-    final name=TextEditingController(text:item.name);String periodicity=item.periodicity;
-    final ok=await showDialog<bool>(context:context,builder:(c)=>StatefulBuilder(builder:(c,setD)=>AlertDialog(title:const Text('Modifier la rubrique'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:name,decoration:const InputDecoration(labelText:'Nom *')),const SizedBox(height:10),DropdownButtonFormField<String>(initialValue:periodicity,decoration:const InputDecoration(labelText:'Périodicité'),items:const ['mensuelle','trimestrielle','annuelle','unique'].map((p)=>DropdownMenuItem(value:p,child:Text(p))).toList(),onChanged:(v){if(v!=null)setD(()=>periodicity=v);})]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Annuler')),FilledButton(onPressed:()=>Navigator.pop(c,name.text.trim().isNotEmpty),child:const Text('Enregistrer'))])));
-    final n=name.text.trim();name.dispose();if(ok!=true)return;await ref.read(financeRepositoryProvider).updateFeeCategory(feeId:item.id,name:n,periodicity:periodicity);ref.invalidate(feeCategoriesProvider);ref.invalidate(feeGridProvider);ref.invalidate(auditEntriesProvider);
+  Future<void> _edit(BuildContext context, WidgetRef ref, FeeCategoryItem item) async {
+    final input = await _categoryDialog(
+      context,
+      title: 'Modifier la rubrique',
+      initialName: item.name,
+      initialPeriodicity: item.periodicity,
+    );
+    if (input == null || !context.mounted) return;
+    try {
+      await ref.read(financeRepositoryProvider).updateFeeCategory(
+        feeId: item.id,
+        name: input['name']!,
+        periodicity: input['periodicity']!,
+      );
+      ref.invalidate(feeCategoriesProvider);
+      ref.invalidate(feeGridProvider);
+      ref.invalidate(auditEntriesProvider);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Modification impossible : $error')),
+        );
+      }
+    }
   }
 
   Future<void> _deactivate(
@@ -86,7 +123,7 @@ class FeeCategoriesScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         title: const Text('Désactiver la rubrique ?'),
         content: Text(
-          '« ${item.name} » ne sera plus utilisée pour les prochaines générations d’échéances. '
+          '« ${item.name} » ne sera plus proposée pour de nouvelles obligations. '
           'Les échéances déjà créées restent intactes.',
         ),
         actions: [
