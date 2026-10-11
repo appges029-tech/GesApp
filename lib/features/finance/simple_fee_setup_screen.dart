@@ -313,3 +313,4 @@ class _SimpleFeeSetupScreenState extends ConsumerState<SimpleFeeSetupScreen> {
           ]),
         )),
   );
+}

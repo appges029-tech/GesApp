@@ -61,16 +61,6 @@ void main() {
     return (cycleId, classrooms.firstWhere((c) => c.name == name).id);
   }
 
-  // Les tests historiques utilisent octobre 2026 ; les inscriptions créées
-  // avec DateTime.now() seraient exclues des échéances à partir du 11/10/2026.
-  // Fixer uniquement les données de test, sans assouplir les règles métier.
-  Future<void> dateEnrollmentFixtures() async {
-    await AppDatabase.instance.db.update(
-      'student_enrollments',
-      {'effective_from': DateTime(2026, 10, 1).toIso8601String()},
-    );
-  }
-
   test('la configuration initiale active son année scolaire', () async {
     final schoolYear = await settings.activeSchoolYear();
 
