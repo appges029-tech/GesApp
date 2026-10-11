@@ -8,6 +8,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
+import 'payment_amount_policy.dart';
 import '../../services/receipt_printer.dart';
 import '../../services/receipt_printing_preferences.dart';
 import '../../services/receipt_service.dart';
@@ -133,8 +134,10 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       .fold<int>(0, (total, due) => total + due.balance);
 
   void _suggestAmountIfUntouched() {
-    if (_amountEditedByUser) return;
-    _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+    _amount.text = suggestedPaymentAmount(
+      current: _amount.text, selectedRemaining: _selectedRemaining,
+      editedByCashier: _amountEditedByUser,
+    );
   }
 
   void _chooseRubric(String? feeId) {
