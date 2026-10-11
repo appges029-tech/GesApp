@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:crypto/crypto.dart';
+import 'package:crypto/crypto.dart' as legacy_crypto;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -30,7 +30,7 @@ class DeviceQuickUnlockService {
   bool get isAndroid => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   String _key(String organizationId, String cloudUserId) =>
-      'gesapp.device.unlock.v1.${sha256.convert(utf8.encode('$organizationId:$cloudUserId'))}';
+      'gesapp.device.unlock.v1.${legacy_crypto.sha256.convert(utf8.encode('$organizationId:$cloudUserId'))}';
 
   Future<Map<String, dynamic>> _load(String orgId, String userId) async {
     if (!isAndroid || orgId.isEmpty || userId.isEmpty) return {};
@@ -161,6 +161,12 @@ class DeviceQuickUnlockService {
     final values = await _load(orgId, userId);
     values.remove('biometric');
     await _write(orgId, userId, values);
+  }
+
+  /// Password rotation invalidates all previously enrolled quick methods.
+  Future<void> clearProfile(String orgId, String userId) async {
+    if (!isAndroid || !_validIdentity(orgId, userId)) return;
+    await _storage.delete(key: _key(orgId, userId));
   }
 
   Future<void> disablePattern(String orgId, String userId) async {
