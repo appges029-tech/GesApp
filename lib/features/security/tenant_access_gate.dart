@@ -12,6 +12,7 @@ import '../../services/tenant_cloud_service.dart';
 import '../../services/cloud_snapshot_service.dart';
 import '../../app/home_shell.dart';
 import '../../app/app_lock_gate.dart';
+import '../../app/quick_unlock_gate.dart';
 import 'super_admin_console_screen.dart';
 
 class TenantAccessGate extends StatefulWidget {
@@ -92,7 +93,10 @@ class _TenantAccessGateState extends State<TenantAccessGate> {
           onChanged: (membership) => setState(() => _membership = membership),
         );
       }
-      return const HomeShell();
+      return QuickUnlockGate(
+        key: ValueKey('${_membership!.organizationId}:${_membership!.cloudUserId}'),
+        child: const HomeShell(),
+      );
     }
     if (_offlineManagerAvailable && TenantCloudService.instance.currentCloudUser == null) {
       return const AppLockGate();
