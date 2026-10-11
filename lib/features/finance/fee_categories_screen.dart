@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../data/models/finance.dart';
 
 class FeeCategoriesScreen extends ConsumerWidget {
@@ -81,7 +82,7 @@ class FeeCategoriesScreen extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Création impossible : $error')),
+          SnackBar(content: Text('Création impossible : ${FriendlyError.message(error)}')),
         );
       }
     }
@@ -107,7 +108,7 @@ class FeeCategoriesScreen extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Modification impossible : $error')),
+          SnackBar(content: Text('Modification impossible : ${FriendlyError.message(error)}')),
         );
       }
     }
@@ -147,7 +148,7 @@ class FeeCategoriesScreen extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Désactivation impossible : $error')),
+          SnackBar(content: Text('Désactivation impossible : ${FriendlyError.message(error)}')),
         );
       }
     }

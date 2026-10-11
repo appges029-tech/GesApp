@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
@@ -211,7 +212,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       });
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Chargement des périodes impossible : $error')));
+        SnackBar(content: Text('Chargement impossible : ${FriendlyError.message(error)}')));
     } finally {
       if (mounted) setState(() => _loadingBalance = false);
     }
@@ -391,7 +392,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              error.toString().replaceFirst('Bad state: ', ''),
+              FriendlyError.message(error),
             ),
           ),
         );

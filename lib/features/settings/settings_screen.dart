@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../core/session/operator_session.dart';
 import '../../core/windows/windows_page_scaffold.dart';
@@ -52,15 +53,31 @@ class SettingsScreen extends StatelessWidget {
           const _SectionTitle('Sécurité & données'),
           WindowsModuleGrid(children: [
             _tile(context, Icons.cloud_sync_outlined, 'Compte & synchronisation', 'Tenant Supabase, état cloud et synchronisation automatique', const CloudSyncScreen()),
-            if (OperatorSession.isAdmin)
-              _tile(context, Icons.admin_panel_settings_outlined, 'Console Super Admin', 'Contrôler les écoles, comptes, appareils et flux du SaaS', const SuperAdminConsoleScreen()),
             _tile(context, Icons.shield_outlined, 'Sécurité', 'Administrateur et comptes gestionnaires', const SecuritySettingsScreen()),
-            _tile(context, Icons.fingerprint_rounded, 'Schéma et empreinte', 'Déverrouillage rapide sur Android', const QuickUnlockSettingsScreen()),
-            _tile(context, Icons.history_outlined, 'Journal d’audit', 'Opérations sensibles, annulations et traçabilité', const AuditLogScreen()),
-            _tile(context, Icons.health_and_safety_outlined, 'Diagnostic des données', 'Contrôler la cohérence SQLite et comptable', const DataIntegrityScreen()),
+            if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+              _tile(context, Icons.fingerprint_rounded, 'Schéma et empreinte', 'Déverrouillage rapide sur Android', const QuickUnlockSettingsScreen()),
             if (OperatorSession.isManager)
               _tile(context, Icons.backup_outlined, 'Sauvegarde', 'Sauvegarde locale, restauration et import/export JSON', const BackupScreen()),
           ]),
+          const SizedBox(height: 20),
+          ExpansionTile(
+            title: const Text('Outils avancés'),
+            subtitle: const Text('Contrôle, traçabilité et diagnostic'),
+            childrenPadding: const EdgeInsets.only(bottom: 12),
+            children: [
+              WindowsModuleGrid(children: [
+                if (OperatorSession.isAdmin)
+                  _tile(context, Icons.admin_panel_settings_outlined,
+                    'Console Super Admin', 'Contrôler les écoles et leurs accès',
+                    const SuperAdminConsoleScreen()),
+                _tile(context, Icons.history_outlined, 'Journal d’audit',
+                  'Historique des opérations sensibles', const AuditLogScreen()),
+                _tile(context, Icons.health_and_safety_outlined,
+                  'Diagnostic des données', 'Vérifier la cohérence des données',
+                  const DataIntegrityScreen()),
+              ]),
+            ],
+          ),
           const SizedBox(height: 28),
         ],
       ),
@@ -77,7 +94,7 @@ class SettingsScreen extends StatelessWidget {
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Personnaliser GesApp', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 3),
-          Text('Tous les paramètres essentiels sont regroupés par domaine.', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          Text('Les réglages courants sont affichés en premier. Les outils techniques restent disponibles dans Options avancées.', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
         ])),
       ]),
     );

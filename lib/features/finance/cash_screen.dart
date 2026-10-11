@@ -215,7 +215,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Ouverture / clôture', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          Text('Ma caisse', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             isExpanded: true,
@@ -242,7 +242,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
             Card(
               child: ListTile(
                 title: const Text('Caisse fermée'),
-                subtitle: const Text('Tout mouvement sur cette caisse est bloqué tant qu’elle n’est pas ouverte.'),
+                subtitle: const Text('Pour recevoir des paiements en espèces, ouvrez la caisse.'),
                 trailing: OperatorSession.isReadOnly ? null : FilledButton(onPressed: _account == null ? null : _openCash, child: const Text('Ouvrir')),
               ),
             )
@@ -255,7 +255,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Session ouverte', style: TextStyle(fontWeight: FontWeight.w800)),
+                      const Text('Caisse ouverte', style: TextStyle(fontWeight: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text('Fond initial : ${formatXaf(_session!['opening_amount'] as int)}'),
                       Text('Solde théorique : ${snapshot.hasData ? formatXaf(snapshot.data!) : 'Calcul…'}'),
@@ -270,9 +270,12 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                 ),
               ),
             ),
-          if (!OperatorSession.isReadOnly) ...[
-            const SizedBox(height: 28),
-            Text('Transfert entre comptes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          if (!OperatorSession.isReadOnly)
+            ExpansionTile(
+              title: const Text('Options avancées de trésorerie'),
+              subtitle: const Text('Transférer un montant entre deux comptes'),
+              childrenPadding: const EdgeInsets.symmetric(vertical: 12),
+              children: [
             const SizedBox(height: 12),
             Row(
               children: [
@@ -304,10 +307,14 @@ class _CashScreenState extends ConsumerState<CashScreen> {
               label: const Text('Enregistrer un transfert'),
             ),
             ],
+          ),
           const SizedBox(height: 20),
-          if (_transfers.isNotEmpty) ...[
-            Text('Transferts récents', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
+          if (_transfers.isNotEmpty)
+            ExpansionTile(
+              title: const Text('Historique des transferts'),
+              subtitle: Text(_transfers.length.toString() + ' mouvement(s) enregistré(s)'),
+              children: [
+
             ..._transfers.take(20).map(
                   (t) => Card(
                     child: ListTile(
@@ -318,7 +325,8 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                     ),
                   ),
                 ),
-          ],
+              ],
+            ),
         ],
       ),
     );
