@@ -75,6 +75,8 @@ class _QuickUnlockGateState extends State<QuickUnlockGate>
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!_locked || !_profile.enabled) return widget.child;
+    final lockedOrganization = _org;
+    final lockedUser = _user;
     return Scaffold(
       body: SafeArea(
         child: QuickUnlockChallenge(
@@ -83,7 +85,11 @@ class _QuickUnlockGateState extends State<QuickUnlockGate>
           profile: _profile,
           onUnlocked: () {
             if (!OperatorSession.isAuthenticated ||
-                !TenantSubscriptionAccess.instance.isAllowed) return;
+                !TenantSubscriptionAccess.instance.isAllowed ||
+                _org != lockedOrganization || _user != lockedUser ||
+                TenantCloudService.instance.currentCloudUser?.id != lockedUser) {
+              return; // Reject stale biometric responses for changed sessions.
+            }
             if (mounted) setState(() => _locked = false);
           },
           onUsePassword: _usePassword,
