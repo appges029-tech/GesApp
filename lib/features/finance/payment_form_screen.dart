@@ -309,9 +309,10 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       return;
     }
     if (!mounted || _saving) return;
+    // unpaidForPayer and the repository allocation use exactly the same
+    // period/date/creation/id order. Preserve it for the cashier preview.
     final selected = _payerDues.where((d) =>
-        _selectedDues.contains(d.id)).toList()
-      ..sort((a, b) => a.periodKey.compareTo(b.periodKey));
+        _selectedDues.contains(d.id)).toList();
     var toAllocate = requested;
     final allocations = <({DueItem due, int paid})>[];
     for (final due in selected) {

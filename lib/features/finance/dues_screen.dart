@@ -91,7 +91,7 @@ class DuesScreen extends ConsumerWidget {
           }
           return ListView(padding: const EdgeInsets.all(16), children: [
             const Card(child: Padding(padding: EdgeInsets.all(14),
-              child: Text('Seules les échéances dont la date limite est '
+              child: Text('Seules les périodes dont la date limite est '
                 'dépassée constituent des retards. Les mensualités futures '
                 'restent visibles dans le calendrier sans être comptées '
                 'comme des retards.'))),
@@ -102,7 +102,7 @@ class DuesScreen extends ConsumerWidget {
           ]);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text('Erreur : ' + error.toString())),
+        error: (error, _) => Center(child: Text('Impossible de charger les impayés. Réessayez ou vérifiez les tarifs.')),
       );
     if (WindowsUi.isDesktop(context)) {
       return WindowsPageScaffold(

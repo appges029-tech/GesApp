@@ -248,7 +248,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                               DropdownMenuItem(value: 'partial', child: Text('Partiellement payé')),
                               DropdownMenuItem(value: 'unpaid', child: Text('Impayé')),
                               DropdownMenuItem(value: 'overdue', child: Text('En retard')),
-                              DropdownMenuItem(value: 'no_due', child: Text('Aucune échéance')),
+                              DropdownMenuItem(value: 'no_due', child: Text('Aucun frais dû')),
                               DropdownMenuItem(value: 'package', child: Text('Forfait actif')),
                             ],
                             onChanged: (value) =>
@@ -395,7 +395,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
           DropdownMenuItem(value: 'partial', child: Text('Partiellement payé')),
           DropdownMenuItem(value: 'unpaid', child: Text('Impayé')),
           DropdownMenuItem(value: 'overdue', child: Text('En retard')),
-          DropdownMenuItem(value: 'no_due', child: Text('Aucune échéance')),
+          DropdownMenuItem(value: 'no_due', child: Text('Aucun frais dû')),
           DropdownMenuItem(value: 'package', child: Text('Forfait actif')),
         ],
         onChanged: (v) => setState(() => _paymentStatus = v),

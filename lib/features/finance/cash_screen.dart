@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 
@@ -104,7 +105,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
       await ref.read(cashRepositoryProvider).open(accountId: account, openingAmount: amount);
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(FriendlyError.message(error))));
     }
   }
 
@@ -124,7 +125,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
       );
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(FriendlyError.message(error))));
     }
   }
 
@@ -200,7 +201,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
       );
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(FriendlyError.message(error))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
