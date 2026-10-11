@@ -26,6 +26,8 @@ class DeviceQuickUnlockService {
   static const _storage = FlutterSecureStorage();
   static final _kdf = Pbkdf2(macAlgorithm: Hmac.sha256(), iterations: 180000, bits: 256);
   final _biometrics = LocalAuthentication();
+  final ValueNotifier<int> changes = ValueNotifier<int>(0);
+  void _changed() => changes.value++;
 
   bool get isAndroid => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
@@ -45,8 +47,10 @@ class DeviceQuickUnlockService {
     }
   }
 
-  Future<void> _write(String orgId, String userId, Map<String, dynamic> values) =>
-      _storage.write(key: _key(orgId, userId), value: jsonEncode(values));
+  Future<void> _write(String orgId, String userId, Map<String, dynamic> values) async {
+    await _storage.write(key: _key(orgId, userId), value: jsonEncode(values));
+    _changed();
+  }
 
   Future<DeviceUnlockProfile> profile(String orgId, String userId) async {
     final values = await _load(orgId, userId);
@@ -167,6 +171,7 @@ class DeviceQuickUnlockService {
   Future<void> clearProfile(String orgId, String userId) async {
     if (!isAndroid || !_validIdentity(orgId, userId)) return;
     await _storage.delete(key: _key(orgId, userId));
+    _changed();
   }
 
   Future<void> disablePattern(String orgId, String userId) async {
