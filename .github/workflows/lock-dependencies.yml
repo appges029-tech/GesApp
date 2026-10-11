@@ -1,11 +1,6 @@
 name: Lock Flutter dependencies
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "pubspec.yaml"
-      - ".github/workflows/lock-dependencies.yml"
   workflow_dispatch:
 
 permissions:
