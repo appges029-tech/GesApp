@@ -198,8 +198,12 @@ class DeviceQuickUnlockService {
     } catch (_) {
       return false;
     } finally {
-      await verifier.auth.signOut();
-      verifier.dispose();
+      try {
+        await verifier.auth.signOut();
+      } catch (_) {
+        // An invalid password does not create a session to revoke.
+      }
+      await verifier.dispose();
     }
   }
 }
