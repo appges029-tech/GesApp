@@ -54,10 +54,13 @@ abstract final class SchoolBillingPeriods {
     } else {
       throw ArgumentError.value(periodicity, 'periodicity');
     }
-    // If an establishment's declared year ends before July, the July
-    // extension is excluded rather than silently inventing a date beyond it.
+    // Exam classes have the explicit July exception, even when the standard
+    // school year closes on 30 June. Other periods obey the configured year.
+    final effectiveEnd = isExamClass &&
+            schoolYearEnd.year == y + 1 && schoolYearEnd.month == 6
+        ? DateTime(y + 1, 7, 31) : schoolYearEnd;
     return starts.where((period) =>
         !period.end.isBefore(schoolYearStart) &&
-        !period.start.isAfter(schoolYearEnd)).toList(growable: false);
+        !period.start.isAfter(effectiveEnd)).toList(growable: false);
   }
 }
