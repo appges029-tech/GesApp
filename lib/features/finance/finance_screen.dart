@@ -85,7 +85,12 @@ class FinanceScreen extends StatelessWidget {
           ),
           const SizedBox(height: 26),
           _section(context, 'Comptabilité et contrôles', 'Outils administratifs et vérification'),
-          WindowsModuleGrid(children: accounting),
+          ExpansionTile(
+            title: const Text('Outils avancés de comptabilité'),
+            subtitle: const Text('Grand livre, fournisseurs et rapprochement bancaire'),
+            childrenPadding: const EdgeInsets.only(bottom: 12),
+            children: [WindowsModuleGrid(children: accounting)],
+          ),
           const SizedBox(height: 28),
         ],
       ),
