@@ -210,6 +210,110 @@ class FinanceRepository {
     }
   }
 
+  /// Register one new or existing school fee for several cycles/classes
+  /// without altering prices, paid periods or prior accounting entries.
+  Future<void> configureFeeForTargets({
+    String? existingFeeId,
+    required String name,
+    required String periodicity,
+    required int amount,
+    List<String> cycleIds = const [],
+    List<String> classroomIds = const [],
+    required DateTime validFrom,
+  }) async {
+    _requireDirector();
+    if (amount <= 0) throw ArgumentError('Saisissez un tarif supérieur à zéro.');
+    if (!const {'mensuelle', 'trimestrielle', 'annuelle', 'unique'}
+        .contains(periodicity)) throw ArgumentError('Périodicité invalide.');
+    if ((cycleIds.isEmpty) == (classroomIds.isEmpty)) {
+      throw ArgumentError('Sélectionnez des cycles ou des classes.');
+    }
+    final targets = cycleIds.isNotEmpty ? cycleIds : classroomIds;
+    if (targets.length != targets.toSet().length) {
+      throw ArgumentError('Choix de cycles ou classes en double.');
+    }
+    final label = name.trim();
+    if (existingFeeId == null && label.isEmpty) {
+      throw ArgumentError('Indiquez le nom des frais.');
+    }
+    final db = _database.db;
+    final now = DateTime.now().toIso8601String();
+    final effective = validFrom.toIso8601String();
+    await db.transaction((tx) async {
+      late final String feeId;
+      if (existingFeeId != null) {
+        final rows = await tx.query('fee_categories',
+          columns: ['id', 'periodicity'], where: 'id=? AND active=1',
+          whereArgs: [existingFeeId], limit: 1);
+        if (rows.isEmpty) throw StateError('Rubrique introuvable.');
+        if (rows.first['periodicity'] != periodicity) {
+          throw StateError('La périodicité ne correspond pas à cette rubrique.');
+        }
+        feeId = existingFeeId;
+      } else {
+        final duplicates = firstIntValue(await tx.rawQuery(
+          'SELECT COUNT(*) FROM fee_categories WHERE lower(name)=lower(?) AND active=1',
+          [label])) ?? 0;
+        if (duplicates > 0) {
+          throw StateError('Ces frais existent déjà : sélectionnez la rubrique existante.');
+        }
+        feeId = _uuid.v4();
+        await tx.insert('fee_categories', {
+          'id': feeId, 'name': label, 'periodicity': periodicity,
+          'active': 1, 'created_at': now, 'updated_at': now,
+        });
+        await tx.insert('audit_log', {
+          'entity_type': 'fee_category', 'entity_id': feeId,
+          'action': 'create', 'new_value': label + '/' + periodicity,
+          'operator_name': OperatorSession.current,
+          'operator_id': OperatorSession.userId,
+          'operator_role': OperatorSession.role, 'created_at': now,
+        });
+      }
+      final classroom = classroomIds.isNotEmpty;
+      for (final targetId in targets) {
+        final active = await tx.rawQuery(classroom
+          ? 'SELECT id FROM classrooms WHERE id=? AND active=1'
+          : 'SELECT id FROM cycles WHERE id=? AND active=1', [targetId]);
+        if (active.isEmpty) {
+          throw StateError('Une classe ou un cycle sélectionné est désactivé.');
+        }
+        final current = await tx.rawQuery(classroom
+          ? 'SELECT id FROM fee_grid WHERE fee_id=? AND classroom_id=? AND valid_to IS NULL'
+          : 'SELECT id FROM fee_grid WHERE fee_id=? AND classroom_id IS NULL AND cycle_id=? AND valid_to IS NULL',
+          [feeId, targetId]);
+        if (current.isNotEmpty) {
+          throw StateError('Un tarif existe déjà pour cette rubrique et ce groupe. '
+            'Utilisez la grille tarifaire pour le modifier.');
+        }
+        final tariffId = _uuid.v4();
+        await tx.insert('fee_grid', {
+          'id': tariffId, 'fee_id': feeId,
+          'cycle_id': classroom ? null : targetId,
+          'classroom_id': classroom ? targetId : null,
+          'amount': amount, 'valid_from': effective,
+          'created_at': now,
+        });
+        await tx.insert('audit_log', {
+          'entity_type': 'fee_grid', 'entity_id': tariffId,
+          'action': 'create',
+          'new_value': feeId + '/' + (classroom ? '' : targetId) +
+              '/' + (classroom ? targetId : '') + '/' +
+              amount.toString() + '/' + effective,
+          'operator_name': OperatorSession.current,
+          'operator_id': OperatorSession.userId,
+          'operator_role': OperatorSession.role, 'created_at': now,
+        });
+      }
+    });
+    try {
+      await BillingCalendarRepository(_database)
+          .completePending(includeReady: true);
+    } catch (_) {
+      // Missing obligations are reconciled on the next payer selection.
+    }
+  }
+
   Future<void> updateFeeCategory({required String feeId,required String name,required String periodicity,bool active=true}) async {
     _requireDirector();final trimmed=name.trim();if(trimmed.isEmpty)throw ArgumentError('Le nom est obligatoire.');
     if(!const {'mensuelle','trimestrielle','annuelle','unique'}.contains(periodicity))throw ArgumentError('Périodicité invalide.');
