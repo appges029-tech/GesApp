@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -28,7 +27,7 @@ class DeviceQuickUnlockService {
   static final _kdf = Pbkdf2(macAlgorithm: Hmac.sha256(), iterations: 180000, bits: 256);
   final _biometrics = LocalAuthentication();
 
-  bool get isAndroid => !kIsWeb && Platform.isAndroid;
+  bool get isAndroid => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   String _key(String organizationId, String cloudUserId) =>
       'gesapp.device.unlock.v1.${sha256.convert(utf8.encode('$organizationId:$cloudUserId'))}';
