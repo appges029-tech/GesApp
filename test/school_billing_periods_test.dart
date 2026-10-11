@@ -53,13 +53,14 @@ void main() {
     }
   });
 
-  test('July is not invented outside the declared school year', () {
+  test('July extends a June-ending year only for exam classes', () {
     final periods = SchoolBillingPeriods.forYear(
       schoolYearStart: start,
       schoolYearEnd: DateTime(2027, 6, 30),
       periodicity: 'mensuelle',
       isExamClass: true,
     );
-    expect(periods, hasLength(9));
+    expect(periods, hasLength(10));
+    expect(periods.last.key, '2027-07');
   });
 }
