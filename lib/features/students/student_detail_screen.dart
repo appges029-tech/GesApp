@@ -249,9 +249,9 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                         ),
                         const SizedBox(height: 10),
                         if (s.paymentStatus == 'pending_configuration')
-                          const Text('Échéancier incomplet : configurez les frais et leur calendrier.', style: TextStyle(color: Colors.deepOrange)),
+                          const Text('Aucun tarif applicable pour cet élève. Vérifiez ses frais et son inscription.', style: TextStyle(color: Colors.deepOrange)),
                         if (s.paymentStatus == 'needs_review')
-                          const Text('Échéancier à vérifier après modification du dossier.', style: TextStyle(color: Colors.deepOrange)),
+                          const Text('Situation à actualiser après modification du dossier.', style: TextStyle(color: Colors.deepOrange)),
                         _line('Attendu', formatXaf(b.finance.expected)),
                         _line('Payé', formatXaf(b.finance.paid)),
                         _line('Reste', formatXaf(b.finance.outstanding)),
@@ -348,7 +348,7 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                 Card(
                   child: ExpansionTile(
                     title: const Text(
-                      'Échéances',
+                      'Périodes de paiement',
                       style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text('${b.dues.length} ligne(s)'),
@@ -356,7 +356,7 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                       if (b.dues.isEmpty)
                         const Padding(
                           padding: EdgeInsets.all(16),
-                          child: Text('Aucune échéance.'),
+                          child: Text('Aucune période de paiement.'),
                         )
                       else
                         ...b.dues.map(
