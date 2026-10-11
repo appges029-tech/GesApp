@@ -251,7 +251,7 @@ class TenantCloudService {
     }
   }
 
-  Future<void> changeOwnPassword(String currentPassword, String newPassword) async {
+  Future<TenantMembershipCache> changeOwnPassword(String currentPassword, String newPassword) async {
     if (!OperatorSession.isManager) {
       throw StateError('Seul un gestionnaire peut changer ce mot de passe.');
     }
@@ -277,6 +277,7 @@ class TenantCloudService {
       throw StateError('Le nouveau mot de passe est enregistré, mais la confirmation du compte a échoué. Reconnectez-vous en ligne.');
     }
     await _cacheLocalCredential(membership, newPassword);
+    return membership;
   }
 
   Future<void> signOut() async {
