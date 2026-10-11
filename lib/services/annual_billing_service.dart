@@ -77,14 +77,8 @@ class AnnualBillingService {
         where: 'school_year_id=? AND fee_id=? AND enabled=1',
         whereArgs: [schoolYearId, feeId], limit: 1);
       final rule = rules.isEmpty ? null : rules.first;
-      final rangeStart = rule == null ? yearStart :
-          _max(yearStart, _read(rule['start_date']));
-      final rangeEnd = rule == null ? yearEnd :
-          _min(yearEnd, _read(rule['end_date']));
-      if (rangeStart.isAfter(rangeEnd)) {
-        warnings.add('Période invalide : $feeName');
-        continue;
-      }
+      // Historic calendar ranges never exclude months or July: dates are
+      // presentation/collection options, not prerequisites for billing.
       final periods = SchoolBillingPeriods.forYear(
         schoolYearStart: yearStart,
         schoolYearEnd: yearEnd,
@@ -92,8 +86,8 @@ class AnnualBillingService {
         isExamClass: isExamClass,
       );
       for (final period in periods) {
-        final start = _max(rangeStart, period.start);
-        final end = _min(rangeEnd, period.end);
+        final start = _max(yearStart, period.start);
+        final end = period.end;
         if (end.isBefore(start)) continue;
         final periodKey = period.key;
         if (end.isBefore(admission)) continue;
