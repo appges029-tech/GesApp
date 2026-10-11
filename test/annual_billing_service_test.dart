@@ -246,6 +246,34 @@ void main() {
       throwsA(isA<StateError>()));
   });
 
+  test('rubrique trimestrielle : trois périodes, frais uniques : une seule', () async {
+    final id = await students.add(
+      firstName: 'Rosine', lastName: 'Différents frais',
+      classroomId: classroomId);
+    await finance.addFeeCategory(
+      name: 'Frais trimestriels', periodicity: 'trimestrielle');
+    await finance.addFeeCategory(
+      name: 'Écusson', periodicity: 'unique');
+    final fees = await finance.feeCategories();
+    final quarter = fees.firstWhere((f) => f.name == 'Frais trimestriels');
+    final single = fees.firstWhere((f) => f.name == 'Écusson');
+    await finance.addFeeGrid(
+      feeId: quarter.id, cycleId: cycleId,
+      amount: 10000, validFrom: DateTime(2026, 9, 1));
+    await finance.addFeeGrid(
+      feeId: single.id, cycleId: cycleId,
+      amount: 2500, validFrom: DateTime(2026, 9, 1));
+    final dues = await finance.unpaidForPayer(
+      studentId: id, includePaid: true);
+    final quarters = dues.where((d) => d.feeId == quarter.id).toList();
+    final unique = dues.where((d) => d.feeId == single.id).toList();
+    expect(quarters.map((d) => d.periodKey).toList(),
+      ['2026-T1', '2026-T2', '2026-T3']);
+    expect(unique, hasLength(1));
+    expect(unique.single.amountDue, 2500);
+    expect((await calendar.completePending(includeReady: true)).created, 0);
+  });
+
   test('TA : versement de 20000 sur octobre et novembre à 15000/mois', () async {
     await finance.addFeeGrid(
       feeId: feeId, cycleId: cycleId,
