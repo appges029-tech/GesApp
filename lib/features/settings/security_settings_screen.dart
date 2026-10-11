@@ -146,70 +146,81 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   Future<void> _resetPassword(Map<String, dynamic> manager) async {
-    if (_resetInProgress) return;
-    final password = TextEditingController(text: _temporaryPassword());
-    bool obscure = true;
-    final ok = await showDialog<bool>(
+    if (_resetInProgress || !mounted) return;
+    String proposed = _temporaryPassword();
+    bool obscured = true;
+    bool invalid = false;
+    final chosen = await showDialog<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
+        builder: (context, refresh) => AlertDialog(
           title: Text('Réinitialiser — ${manager['display_name']}'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Le code actuel sera remplacé côté serveur. '
-              'Le gestionnaire devra le modifier à la prochaine connexion en ligne.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: password,
-              obscureText: obscure,
-              decoration: InputDecoration(
-                labelText: 'Mot de passe temporaire',
-                helperText: '10 caractères, majuscule, minuscule et chiffre',
-                suffixIcon: IconButton(
-                  tooltip: obscure ? 'Afficher le code' : 'Masquer le code',
-                  onPressed: () => update(() => obscure = !obscure),
-                  icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Le gestionnaire devra changer ce code lors de sa prochaine connexion en ligne.'),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: ValueKey(proposed),
+                initialValue: proposed,
+                obscureText: obscured,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: 'Mot de passe temporaire',
+                  errorText: invalid ? '10 caractères, majuscule, minuscule et chiffre requis' : null,
+                  suffixIcon: IconButton(
+                    tooltip: obscured ? 'Afficher' : 'Masquer',
+                    onPressed: () => refresh(() => obscured = !obscured),
+                    icon: Icon(obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                  ),
                 ),
+                onChanged: (value) { proposed = value; if (invalid) refresh(() => invalid = false); },
               ),
-            ),
-            TextButton.icon(
-              onPressed: () => update(() => password.text = _temporaryPassword()),
-              icon: const Icon(Icons.casino_outlined),
-              label: const Text('Générer un autre code'),
-            ),
-          ]),
+              TextButton.icon(
+                onPressed: () => refresh(() { proposed = _temporaryPassword(); invalid = false; }),
+                icon: const Icon(Icons.casino_outlined),
+                label: const Text('Générer un autre code'),
+              ),
+            ]),
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Réinitialiser')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
+            FilledButton(
+              onPressed: () {
+                if (!ManagerPasswordPolicy.isStrong(proposed)) {
+                  refresh(() => invalid = true);
+                  return;
+                }
+                Navigator.pop(dialogContext, proposed);
+              },
+              child: const Text('Réinitialiser'),
+            ),
           ],
         ),
       ),
     );
-    if (ok != true) { password.dispose(); return; }
-    final secret = password.text;
-    password.dispose();
+    if (chosen == null || !mounted) return;
     setState(() => _resetInProgress = true);
     try {
-      await TenantCloudService.instance.resetManagerPassword(manager['id'].toString(), secret);
+      await TenantCloudService.instance.resetManagerPassword(manager['id'].toString(), chosen);
       if (!mounted) return;
       await _load();
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Mot de passe réinitialisé'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('À transmettre de façon confidentielle au gestionnaire :'),
+            const Text('Transmettez ce code de façon confidentielle :'),
             const SizedBox(height: 12),
-            SelectableText(secret, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            SelectableText(chosen, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             const SizedBox(height: 12),
-            const Text('Les anciens codes locaux ne peuvent pas être révoqués '
-              'sur un appareil totalement hors ligne. Une reconnexion est nécessaire.'),
+            const Text('Les appareils totalement hors ligne devront se reconnecter pour recevoir le changement.'),
           ]),
-          actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('J’ai noté le code'))],
+          actions: [FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('J’ai noté le code'))],
         ),
       );
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Réinitialisation impossible : $error')));
     } finally {
       if (mounted) setState(() => _resetInProgress = false);
     }
