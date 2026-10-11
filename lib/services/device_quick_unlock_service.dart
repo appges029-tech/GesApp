@@ -31,7 +31,7 @@ class DeviceQuickUnlockService {
   bool get isAndroid => !kIsWeb && Platform.isAndroid;
 
   String _key(String organizationId, String cloudUserId) =>
-      'gesapp.device.unlock.v1.\${sha256.convert(utf8.encode('$organizationId:$cloudUserId'))}';
+      'gesapp.device.unlock.v1.${sha256.convert(utf8.encode('$organizationId:$cloudUserId'))}';
 
   Future<Map<String, dynamic>> _load(String orgId, String userId) async {
     if (!isAndroid || orgId.isEmpty || userId.isEmpty) return {};
