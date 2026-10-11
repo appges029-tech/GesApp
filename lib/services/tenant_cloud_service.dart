@@ -6,6 +6,7 @@ import '../core/cloud/supabase_bootstrap.dart';
 import '../core/cloud/supabase_config.dart';
 import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
+import '../core/security/manager_password_policy.dart';
 import '../core/session/tenant_subscription_access.dart';
 import '../data/repositories/security_repository.dart';
 import '../data/repositories/tenant_repository.dart';
@@ -368,14 +369,9 @@ class TenantCloudService {
   }
 
   void _requireStrongPassword(String value) {
-    if (value.length < 10 ||
-        !RegExp(r'[a-z]').hasMatch(value) ||
-        !RegExp(r'[A-Z]').hasMatch(value) ||
-        !RegExp(r'[0-9]').hasMatch(value)) {
-      throw ArgumentError(
-        'Le mot de passe doit contenir au moins 10 caractères, '
-        'une majuscule, une minuscule et un chiffre.',
-      );
+    if (!ManagerPasswordPolicy.isStrong(value)) {
+      throw ArgumentError('Le mot de passe doit contenir au moins 10 caractères, '
+          'une majuscule, une minuscule et un chiffre.');
     }
   }
 
