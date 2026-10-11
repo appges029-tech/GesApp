@@ -48,6 +48,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   final String _operationId = const Uuid().v4();
   String? _committedReceipt;
   bool _loadingBalance = false;
+  bool _amountEditedByUser = false;
   int? _outstanding;
   int _credit = 0;
 
@@ -131,6 +132,11 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       .where((due) => _selectedDues.contains(due.id))
       .fold<int>(0, (total, due) => total + due.balance);
 
+  void _suggestAmountIfUntouched() {
+    if (_amountEditedByUser) return;
+    _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+  }
+
   void _chooseRubric(String? feeId) {
     setState(() {
       _feeId = feeId;
@@ -141,7 +147,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
           break;
         }
       }
-      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      _suggestAmountIfUntouched();
     });
   }
 
@@ -150,7 +156,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     setState(() {
       if (selected) { _selectedDues.add(due.id); }
       else { _selectedDues.remove(due.id); }
-      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      _suggestAmountIfUntouched();
     });
   }
 
@@ -158,7 +164,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     setState(() {
       if (selected) { _selectedDues.add(due.id); }
       else { _selectedDues.remove(due.id); }
-      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      _suggestAmountIfUntouched();
     });
   }
 
@@ -175,10 +181,14 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         _selectedDues.clear();
         _feeId = null;
         _amount.clear();
+        _amountEditedByUser = false;
       });
       return;
     }
-    setState(() => _loadingBalance = true);
+    setState(() {
+      _loadingBalance = true;
+      _amountEditedByUser = false;
+    });
     try {
       final repo = ref.read(financeRepositoryProvider);
       if (payerType == _PayerType.student) {
@@ -202,7 +212,8 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         _payerDues = dues;
         _selectedDues.clear();
         if (payerType == _PayerType.family) {
-          _selectedDues.addAll(dues.where((d) => d.balance > 0).map((d) => d.id));
+          // The cashier explicitly chooses the children and months being paid.
+          _feeId = null;
         } else {
           final available = dues.where((d) => d.balance > 0).toList();
           _feeId = available.isNotEmpty ? available.first.feeId :
@@ -211,7 +222,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
           }
         }
-        _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+        _suggestAmountIfUntouched();
       });
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -541,6 +552,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                   _payerType = value.first;
                   _outstanding = null;
                   _amount.clear();
+                  _amountEditedByUser = false;
                 });
                 _loadOutstanding();
               },
@@ -756,16 +768,19 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             ] else if (_payerType == _PayerType.family && _payerDues.isNotEmpty) ...[
               Text('Périodes à régler pour la famille',
                   style: Theme.of(context).textTheme.titleMedium),
+              const Text('Choisissez uniquement les enfants et périodes à régler.'),
               ..._payerDues.map((d) => CheckboxListTile(
                 dense: true, contentPadding: EdgeInsets.zero,
                 value: _selectedDues.contains(d.id),
                 title: Text('${d.studentName} · ${d.feeName} · ${d.periodKey}'),
                 subtitle: Text('Reste ${formatXaf(d.balance)}'),
-                onChanged: (v) => _chooseDueFamily(d, v == true),
+                onChanged: d.balance <= 0 || _saving ? null :
+                  (v) => _chooseDueFamily(d, v == true),
               )),
             ],
             TextFormField(
               controller: _amount,
+              onChanged: (_) => _amountEditedByUser = true,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Montant (FCFA) *',
