@@ -101,48 +101,62 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Future<void> _showMore(List<_NavEntry> entries) async {
     final selected = await showModalBottomSheet<int>(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Tous les modules', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: MediaQuery.sizeOf(context).width >= 520 ? 4 : 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 2.25,
-              children: [3, 4, 5, 7]
-                  .map((index) => InkWell(
+      builder: (sheetContext) {
+        final size = MediaQuery.sizeOf(sheetContext);
+        final width = size.width;
+        final columns = width >= 620 ? 4 : width >= 350 ? 2 : 1;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: size.height * .74),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tous les modules',
+                  style: Theme.of(sheetContext).textTheme.titleLarge),
+                const SizedBox(height: 14),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: columns,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: columns == 1 ? 4.0 : columns == 2 ? 1.7 : 2.2,
+                  children: [3, 4, 5, 7].map((index) => InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => Navigator.pop(sheetContext, index),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        color: Theme.of(sheetContext).colorScheme.surfaceContainerLow,
                         borderRadius: BorderRadius.circular(16),
-                        onTap: () => Navigator.pop(context, index),
-                        child: Ink(
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerLow,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(entries[index].selectedIcon, color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 9),
-                              Flexible(child: Text(entries[index].label, style: const TextStyle(fontWeight: FontWeight.w700))),
-                            ],
-                          ),
+                        border: Border.all(
+                          color: Theme.of(sheetContext).colorScheme.outlineVariant),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(entries[index].selectedIcon,
+                              color: Theme.of(sheetContext).colorScheme.primary),
+                            const SizedBox(width: 6),
+                            Flexible(child: Text(entries[index].label,
+                              maxLines: 2, overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w700))),
+                          ],
                         ),
-                      ))
-                  .toList(),
+                      ),
+                    ),
+                  )).toList(),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
     if (selected != null && mounted) _select(selected);
   }
