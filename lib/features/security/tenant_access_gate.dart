@@ -146,6 +146,14 @@ class _TenantLookupErrorScreen extends StatelessWidget {
                     Text('$error', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 18),
                     FilledButton.icon(onPressed: () => onRetry(), icon: const Icon(Icons.refresh), label: const Text('Réessayer')),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await TenantCloudService.instance.signOut();
+                      },
+                      icon: const Icon(Icons.logout_outlined),
+                      label: const Text('Déconnecter ce compte'),
+                    ),
                   ]),
                 ),
               ),

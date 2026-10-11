@@ -158,6 +158,9 @@ class TenantCloudService {
       updatedAt: DateTime.now(),
     );
     if (!membership.active) throw StateError('Ce compte a été désactivé par l’administrateur.');
+    // Avant TOUT cache, renommage ou lancement de la synchronisation :
+    // vérifie que cette installation n'appartient pas déjà à une autre école.
+    await _tenantRepo.ensureOrganizationIsolated(membership.organizationId);
     await _tenantRepo.cacheMembership(membership);
     await _tenantRepo.applyOrganizationIdentity(
       organizationId: membership.organizationId,
@@ -271,6 +274,8 @@ class TenantCloudService {
   Future<bool> canUnlockCachedManagerOffline() async {
     final cached = await _tenantRepo.cachedMembership();
     if (cached == null || !cached.active || !cached.isManager) return false;
+    // Le code PIN hors ligne doit respecter la même séparation des écoles.
+    await _tenantRepo.ensureOrganizationIsolated(cached.organizationId);
     await TenantSubscriptionAccess.instance.restore(cached.organizationId);
     if (!TenantSubscriptionAccess.instance.isAllowed) return false;
     final username = cached.username?.trim().toLowerCase();
@@ -291,16 +296,29 @@ class TenantCloudService {
       try {
         final remote = await loadMyMembership();
         if (remote != null) return remote;
-      } catch (_) {
-        // Hors connexion : on poursuit avec le cache local ci-dessous.
+      } catch (error) {
+        // Une erreur d'isolation n'est jamais une panne réseau :
+        // aucune reconnexion via un cache d'une autre école.
+        final details = error.toString();
+        if (details.contains('Sécurité :') ||
+            details.contains('ancienne base scolaire non attribuée')) {
+          rethrow;
+        }
+        // Hors connexion : le cache ne sera accepté que pour le même userId.
       }
     }
     final cached = await _tenantRepo.cachedMembership();
-    if (cached != null && cached.active && _client.auth.currentSession != null) {
+    if (cached != null &&
+        cached.active &&
+        _client.auth.currentSession != null &&
+        cached.cloudUserId == _client.auth.currentUser?.id) {
+      await _tenantRepo.ensureOrganizationIsolated(cached.organizationId);
       await TenantSubscriptionAccess.instance.restore(cached.organizationId);
       _applySession(cached);
       return cached;
     }
+    // Ne jamais restaurer l'école A lorsque Supabase est connecté à B.
+    OperatorSession.clear();
     return null;
   }
 

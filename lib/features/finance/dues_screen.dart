@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_ui.dart';
 import '../../data/models/finance_full.dart';
+import 'billing_calendar_screen.dart';
 
 /// Une échéance future est une obligation programmée, pas un retard.
 class DuesScreen extends ConsumerWidget {
@@ -42,7 +44,46 @@ class DuesScreen extends ConsumerWidget {
     final body = state.when(
         data: (items) {
           if (items.isEmpty) {
-            return const Center(child: Text('Aucune échéance non réglée.'));
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.event_available_outlined, size: 44),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Aucune échéance non réglée',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Si un élève devrait avoir une dette, vérifiez la rubrique, '
+                        'le tarif de son cycle ou de sa classe, puis les dates '
+                        'limites du calendrier de facturation. '
+                        'Une rubrique sans calendrier complet ne crée pas '
+                        'd’échéance fictive.',
+                        textAlign: TextAlign.center,
+                      ),
+                      if (!OperatorSession.isReadOnly) ...[
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const BillingCalendarScreen(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.calendar_month_outlined),
+                          label: const Text('Vérifier le calendrier'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
           }
           final now = DateTime.now();
           final today = DateTime(now.year, now.month, now.day);

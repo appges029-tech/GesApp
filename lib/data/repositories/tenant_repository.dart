@@ -2,6 +2,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 
 import '../../core/db/app_database.dart';
 import '../../core/session/operator_session.dart';
+import '../../core/session/tenant_data_isolation.dart';
 
 class TenantMembershipCache {
   const TenantMembershipCache({
@@ -52,6 +53,45 @@ class TenantMembershipCache {
 class TenantRepository {
   TenantRepository(this._database);
   final AppDatabase _database;
+
+  /// Binds the shared SQLite database to a single school (fail closed).
+  Future<void> ensureOrganizationIsolated(String organizationId) async {
+    if (organizationId.trim().length != 36) {
+      throw StateError('Identifiant établissement invalide.');
+    }
+    const key = 'gesapp.cloud.bound_organization_id.v1';
+    await _database.db.transaction((txn) async {
+      final binding = await txn.query(
+        'app_settings', columns: ['value'], where: 'key = ?',
+        whereArgs: [key], limit: 1,
+      );
+      final stored = binding.isEmpty ? null : binding.first['value']?.toString();
+      TenantDataIsolation.requireSameTenant(organizationId, stored);
+      final established = await txn.query('establishments', columns: ['id']);
+      if (established.any((r) => r['id']?.toString() != organizationId)) {
+        throw StateError('Sécurité : la base contient les données d’une autre école.');
+      }
+      final cached = await txn.query('cloud_tenant_cache', columns: ['organization_id']);
+      if (cached.any((r) => r['organization_id']?.toString() != organizationId)) {
+        throw StateError('Sécurité : cette base locale appartient à une autre école.');
+      }
+      if (stored == null && established.isEmpty && cached.isEmpty) {
+        for (final table in const ['students', 'payments', 'dues', 'expenses', 'families']) {
+          final rows = await txn.rawQuery('SELECT COUNT(*) AS n FROM $table');
+          if (((rows.first['n'] as num?)?.toInt() ?? 0) > 0) {
+            throw StateError('Une ancienne base scolaire non attribuée contient des données. Migration contrôlée requise.');
+          }
+        }
+      }
+      if (stored == null) {
+        await txn.insert('app_settings', {
+          'key': key,
+          'value': organizationId,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        });
+      }
+    });
+  }
 
   Future<TenantMembershipCache?> cachedMembership() async {
     final rows = await _database.db.query(
