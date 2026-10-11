@@ -115,6 +115,33 @@ void main() {
     expect((await finance.feeGrid()).length, 1);
   });
 
+  test('une rubrique peut recevoir des tarifs sur plusieurs classes', () async {
+    final a = await createClass('ClasseA');
+    final b = await createClass('ClasseB');
+    final c = await createClass('ClasseC');
+    await finance.configureFeeForTargets(
+      name: 'Scolarité mutualisée', periodicity: 'mensuelle',
+      amount: 15000, classroomIds: [a.$2, b.$2],
+      validFrom: DateTime(2026, 10, 1));
+    final fees = await finance.feeCategories();
+    expect(fees, hasLength(1));
+    expect((await finance.feeGrid()), hasLength(2));
+    await finance.configureFeeForTargets(
+      existingFeeId: fees.single.id,
+      name: fees.single.name, periodicity: fees.single.periodicity,
+      amount: 15000, classroomIds: [c.$2],
+      validFrom: DateTime(2026, 10, 1));
+    expect((await finance.feeCategories()), hasLength(1));
+    expect((await finance.feeGrid()), hasLength(3));
+
+    await expectLater(finance.configureFeeForTargets(
+      existingFeeId: fees.single.id,
+      name: fees.single.name, periodicity: fees.single.periodicity,
+      amount: 15000, classroomIds: [a.$2, b.$2],
+      validFrom: DateTime(2026, 10, 1)), throwsStateError);
+    expect((await finance.feeGrid()), hasLength(3));
+  });
+
   test('une génération mensuelle ignore les rubriques annuelles', () async {
     final target = await createClass('Test-A');
     await students.add(
