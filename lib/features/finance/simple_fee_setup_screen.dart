@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../core/session/operator_session.dart';
 import '../../data/models/student.dart';
 
@@ -72,8 +73,7 @@ class _SimpleFeeSetupScreenState extends ConsumerState<SimpleFeeSetupScreen> {
         content: Text('Frais et tarif créés. Les périodes sont automatiques.')));
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString()
-        .replaceFirst('Bad state: ', '').replaceFirst('Invalid argument(s): ', ''));
+      if (mounted) setState(() => _error = FriendlyError.message(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
