@@ -18,6 +18,7 @@ import 'receipt_printing_settings_screen.dart';
 import 'school_years_screen.dart';
 import 'security_settings_screen.dart';
 import '../security/super_admin_console_screen.dart';
+import '../security/quick_unlock_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -54,6 +55,7 @@ class SettingsScreen extends StatelessWidget {
             if (OperatorSession.isAdmin)
               _tile(context, Icons.admin_panel_settings_outlined, 'Console Super Admin', 'Contrôler les écoles, comptes, appareils et flux du SaaS', const SuperAdminConsoleScreen()),
             _tile(context, Icons.shield_outlined, 'Sécurité', 'Administrateur et comptes gestionnaires', const SecuritySettingsScreen()),
+            _tile(context, Icons.fingerprint_rounded, 'Schéma et empreinte', 'Déverrouillage rapide sur Android', const QuickUnlockSettingsScreen()),
             _tile(context, Icons.history_outlined, 'Journal d’audit', 'Opérations sensibles, annulations et traçabilité', const AuditLogScreen()),
             _tile(context, Icons.health_and_safety_outlined, 'Diagnostic des données', 'Contrôler la cohérence SQLite et comptable', const DataIntegrityScreen()),
             if (OperatorSession.isManager)
