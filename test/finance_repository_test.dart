@@ -344,6 +344,41 @@ void main() {
     );
   });
 
+  test('réessayer le même encaissement ne crée ni doublon ni nouvelle allocation', () async {
+    final target = await createClass('Idem');
+    await students.add(firstName: 'Alice', lastName: 'Validation',
+      classroomId: target.$2);
+    final student = (await students.list()).single;
+    await finance.addFeeCategory(name: 'Scolarité sécurisée',
+      periodicity: 'mensuelle');
+    final fee = (await finance.feeCategories()).single;
+    await finance.addFeeGrid(
+      feeId: fee.id, cycleId: target.$1, amount: 15000,
+      validFrom: DateTime(2026, 10, 1));
+    final october = (await finance.dues()).firstWhere(
+      (d) => d.periodKey == '2026-10');
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    const operation = 'pay-idempotent-20261011-test';
+    final first = await finance.recordPayment(
+      studentId: student.id, amount: 5000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash',
+      operationId: operation);
+    final second = await finance.recordPayment(
+      studentId: student.id, amount: 5000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash',
+      operationId: operation);
+    expect(second, first);
+    expect((await finance.recentPayments()).where(
+      (p) => p.receiptNumber == first), hasLength(1));
+    expect((await finance.paymentReceiptLines(first)), hasLength(1));
+    expect((await finance.dues()).firstWhere(
+      (d) => d.id == october.id).amountPaid, 5000);
+    await expectLater(finance.recordPayment(
+      studentId: student.id, amount: 7000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash',
+      operationId: operation), throwsStateError);
+  });
+
   test('un paiement refuse une échéance appartenant à un autre élève', () async {
     final target = await createClass('Test-Payeur');
     await students.add(firstName: 'Alice', lastName: 'A', classroomId: target.$2);
