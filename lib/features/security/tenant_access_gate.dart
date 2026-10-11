@@ -59,7 +59,7 @@ class _TenantAccessGateState extends State<TenantAccessGate> {
       final offlineManagerAvailable = membership == null &&
           TenantCloudService.instance.currentCloudUser == null &&
           await TenantCloudService.instance.canUnlockCachedManagerOffline();
-      if (membership != null) {
+      if (membership != null && !membership.mustChangePassword) {
         await CloudSnapshotService.instance.synchronize();
       }
       if (!mounted) return;
@@ -112,7 +112,9 @@ class _TenantAccessGateState extends State<TenantAccessGate> {
       error: _error,
       onConnected: (membership) {
         setState(() => _membership = membership);
-        unawaited(CloudSnapshotService.instance.synchronize());
+        if (!membership.mustChangePassword) {
+          unawaited(CloudSnapshotService.instance.synchronize());
+        }
       },
     );
   }
@@ -435,6 +437,7 @@ class _MandatoryPasswordChangeScreen extends StatefulWidget {
 }
 
 class _MandatoryPasswordChangeScreenState extends State<_MandatoryPasswordChangeScreen> {
+  final _currentPassword = TextEditingController();
   final _password = TextEditingController();
   final _confirmation = TextEditingController();
   bool _busy = false;
@@ -443,14 +446,23 @@ class _MandatoryPasswordChangeScreenState extends State<_MandatoryPasswordChange
 
   @override
   void dispose() {
+    _currentPassword.dispose();
     _password.dispose();
     _confirmation.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    if (_password.text.length < 8) {
-      setState(() => _error = 'Le nouveau mot de passe doit contenir au moins 8 caractères.');
+    final candidate = _password.text;
+    if (candidate.length < 10 ||
+        !RegExp(r'[a-z]').hasMatch(candidate) ||
+        !RegExp(r'[A-Z]').hasMatch(candidate) ||
+        !RegExp(r'[0-9]').hasMatch(candidate)) {
+      setState(() => _error = '10 caractères minimum, une majuscule, une minuscule et un chiffre sont obligatoires.');
+      return;
+    }
+    if (_currentPassword.text.isEmpty || candidate == _currentPassword.text) {
+      setState(() => _error = 'Saisissez le mot de passe temporaire, puis un nouveau mot de passe différent.');
       return;
     }
     if (_password.text != _confirmation.text) {
@@ -459,10 +471,10 @@ class _MandatoryPasswordChangeScreenState extends State<_MandatoryPasswordChange
     }
     setState(() { _busy = true; _error = null; });
     try {
-      await TenantCloudService.instance.changeOwnPassword(_password.text);
-      final membership = await TenantCloudService.instance.loadMyMembership();
-      if (membership == null) throw StateError('Session introuvable après changement du mot de passe.');
+      final membership = await TenantCloudService.instance.changeOwnPassword(_currentPassword.text, candidate);
+      if (!mounted) return;
       widget.onChanged(membership);
+      unawaited(CloudSnapshotService.instance.synchronize());
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -490,6 +502,8 @@ class _MandatoryPasswordChangeScreenState extends State<_MandatoryPasswordChange
                     const SizedBox(height: 8),
                     const Text('Le mot de passe transmis par l’administrateur est temporaire. Vous devez le remplacer avant d’utiliser GesApp.', textAlign: TextAlign.center),
                     const SizedBox(height: 20),
+                    TextField(controller: _currentPassword, obscureText: true, decoration: const InputDecoration(labelText: 'Mot de passe temporaire actuel')),
+                    const SizedBox(height: 12),
                     TextField(controller: _password, obscureText: _obscure, decoration: InputDecoration(labelText: 'Nouveau mot de passe', suffixIcon: IconButton(onPressed: () => setState(() => _obscure = !_obscure), icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined)))),
                     const SizedBox(height: 12),
                     TextField(controller: _confirmation, obscureText: true, decoration: const InputDecoration(labelText: 'Confirmer le mot de passe'), onSubmitted: (_) => _save()),

@@ -6,6 +6,7 @@ import '../core/cloud/supabase_bootstrap.dart';
 import '../core/cloud/supabase_config.dart';
 import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
+import '../core/security/manager_password_policy.dart';
 import '../core/session/tenant_subscription_access.dart';
 import '../data/repositories/security_repository.dart';
 import '../data/repositories/tenant_repository.dart';
@@ -90,7 +91,10 @@ class TenantCloudService {
       await _client.auth.signOut();
       throw StateError('Ce compte n’appartient pas à cet établissement.');
     }
-    await _cacheLocalCredential(membership, password);
+    // Never cache a temporary password for offline use.
+    if (!membership.mustChangePassword) {
+      await _cacheLocalCredential(membership, password);
+    }
     return membership;
   }
 
@@ -218,19 +222,8 @@ class TenantCloudService {
       throw StateError('Création du gestionnaire refusée : ${response.data}');
     }
     final data = Map<String, dynamic>.from(response.data as Map);
-    // Le compte est également mis en cache sur le poste courant pour les
-    // validations sensibles hors connexion.
-    final security = SecurityRepository(AppDatabase.instance);
-    final localUsers = await security.users();
-    if (!localUsers.any((u) => u.username.toLowerCase() == username.trim().toLowerCase())) {
-      await security.createUser(
-        username: username,
-        displayName: displayName,
-        role: 'manager',
-        pin: temporaryPassword,
-        allowAdminProvisioning: true,
-      );
-    }
+    // A newly created manager must authenticate online on their own device.
+    // Never create their offline credentials on the administrator's device.
     return data;
   }
 
@@ -252,17 +245,39 @@ class TenantCloudService {
       'admin-reset-manager-password',
       body: {'membership_id': membershipId, 'temporary_password': temporaryPassword},
     );
-    if (response.status < 200 || response.status >= 300) {
+    if (response.status < 200 || response.status >= 300 ||
+        response.data is! Map || response.data['ok'] != true) {
       throw StateError('Réinitialisation refusée : ${response.data}');
     }
   }
 
-  Future<void> changeOwnPassword(String password) async {
-    _requireStrongPassword(password);
-    await _client.auth.updateUser(UserAttributes(password: password));
-    await _client.rpc('mark_password_changed');
+  Future<TenantMembershipCache> changeOwnPassword(String currentPassword, String newPassword) async {
+    if (!OperatorSession.isManager) {
+      throw StateError('Seul un gestionnaire peut changer ce mot de passe.');
+    }
+    _requireStrongPassword(newPassword);
+    if (newPassword == currentPassword) {
+      throw ArgumentError('Le nouveau mot de passe doit être différent de l’ancien.');
+    }
+    // The server checks the current password, updates Supabase Auth and only
+    // then clears must_change_password. No callable client-side flag bypass.
+    final response = await _client.functions.invoke(
+      'manager-change-password',
+      body: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      },
+    );
+    if (response.status < 200 || response.status >= 300 ||
+        response.data is! Map || response.data['ok'] != true) {
+      throw StateError('Changement du mot de passe refusé : ${response.data}');
+    }
     final membership = await loadMyMembership();
-    if (membership != null && membership.isManager) await _cacheLocalCredential(membership, password);
+    if (membership == null || !membership.isManager || membership.mustChangePassword) {
+      throw StateError('Le nouveau mot de passe est enregistré, mais la confirmation du compte a échoué. Reconnectez-vous en ligne.');
+    }
+    await _cacheLocalCredential(membership, newPassword);
+    return membership;
   }
 
   Future<void> signOut() async {
@@ -273,7 +288,8 @@ class TenantCloudService {
 
   Future<bool> canUnlockCachedManagerOffline() async {
     final cached = await _tenantRepo.cachedMembership();
-    if (cached == null || !cached.active || !cached.isManager) return false;
+    if (cached == null || !cached.active || !cached.isManager ||
+        cached.mustChangePassword) return false;
     // Le code PIN hors ligne doit respecter la même séparation des écoles.
     await _tenantRepo.ensureOrganizationIsolated(cached.organizationId);
     await TenantSubscriptionAccess.instance.restore(cached.organizationId);
@@ -354,14 +370,9 @@ class TenantCloudService {
   }
 
   void _requireStrongPassword(String value) {
-    if (value.length < 10 ||
-        !RegExp(r'[a-z]').hasMatch(value) ||
-        !RegExp(r'[A-Z]').hasMatch(value) ||
-        !RegExp(r'[0-9]').hasMatch(value)) {
-      throw ArgumentError(
-        'Le mot de passe doit contenir au moins 10 caractères, '
-        'une majuscule, une minuscule et un chiffre.',
-      );
+    if (!ManagerPasswordPolicy.isStrong(value)) {
+      throw ArgumentError('Le mot de passe doit contenir au moins 10 caractères, '
+          'une majuscule, une minuscule et un chiffre.');
     }
   }
 
