@@ -104,7 +104,7 @@ class DashboardScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(18),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
-                    Expanded(child: Text('Recouvrement des échéances', style: Theme.of(context).textTheme.titleMedium)),
+                    Expanded(child: Text('Suivi des paiements en retard', style: Theme.of(context).textTheme.titleMedium)),
                     Text('${(d.recoveryRate * 100).round()} %', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: scheme.primary)),
                   ]),
                   const SizedBox(height: 14),
