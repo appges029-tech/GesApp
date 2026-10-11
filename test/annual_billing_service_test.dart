@@ -59,16 +59,16 @@ void main() {
         endDate:DateTime(2027,6,30),dueDay:10,
         admissionPolicy:admissionPolicy,graceDays:0);
 
-  test('inscription : neuf mensualités créées une seule fois', () async {
+  test('inscription : dix mois en terminale, y compris juillet', () async {
     await setupCalendar();
     final id=await students.add(firstName:'Jean',lastName:'Test',
       classroomId:classroomId);
     final dues=await finance.dues();
-    expect(dues.length,9);
+    expect(dues.length,10);
     expect(dues.first.periodKey,'2026-10');
-    expect(dues.last.periodKey,'2027-06');
+    expect(dues.last.periodKey,'2027-07');
     expect(dues.every((d)=>d.amountDue==30000),isTrue);
-    expect(await finance.outstandingForStudent(id),270000);
+    expect(await finance.outstandingForStudent(id),300000);
     final state=await AppDatabase.instance.db.query('student_billing_state',
       where:'student_id=?',whereArgs:[id]);
     expect(state.single['status'],'ready');
@@ -77,7 +77,7 @@ void main() {
         studentId:id,schoolYearId:state.single['school_year_id'] as String,
         classroomId:classroomId,enrolledAt:DateTime(2026,10,9)));
     expect(rerun.created,0);
-    expect((await finance.dues()).length,9);
+    expect((await finance.dues()).length,10);
   });
 
   test('sans calendrier : les obligations naissent automatiquement du tarif', () async {
@@ -101,7 +101,7 @@ void main() {
     await students.add(firstName:'Aline',lastName:'Test',
       classroomId:classroomId);
     final dues=await finance.dues();
-    expect(dues.length,8);
+    expect(dues.length,9);
     expect(dues.first.periodKey,'2026-11');
   });
 
