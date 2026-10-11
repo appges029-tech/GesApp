@@ -8,6 +8,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/db/app_database.dart';
 import '../../core/session/operator_session.dart';
+import '../../core/session/tenant_subscription_access.dart';
+import 'tenant_repository.dart';
 
 class AppUser {
   const AppUser({
@@ -213,6 +215,60 @@ class SecurityRepository {
       organizationName: tenant?['organization_name'] as String?,
     );
     return LoginResult.success(refreshed);
+  }
+
+  /// Completes offline manager login ONLY after verifying a hardware/device
+  /// credential supplied by the unlock service. Never grants admin rights.
+  Future<LoginResult> authenticateWithDeviceUnlock({
+    required String userId,
+    required Future<bool> Function() verify,
+  }) async {
+    final cached = await TenantRepository(_database).cachedMembership();
+    if (cached == null || !cached.active || !cached.isManager ||
+        cached.mustChangePassword) {
+      return LoginResult.failure('Aucun accès gestionnaire hors ligne autorisé.');
+    }
+    final rows = await _database.db.query('app_users',
+      where: "id=? AND role='manager' AND active=1",
+      whereArgs: [userId], limit: 1);
+    if (rows.isEmpty) return LoginResult.failure('Compte local inactif.');
+    final user = AppUser.fromMap(rows.first);
+    if (user.username.trim().toLowerCase() !=
+        cached.username?.trim().toLowerCase()) {
+      return LoginResult.failure('Cet accès ne correspond pas au gestionnaire.');
+    }
+    if (user.lockedUntil != null &&
+        user.lockedUntil!.isAfter(DateTime.now())) {
+      return LoginResult.failure('Compte temporairement verrouillé.',
+        lockedUntil: user.lockedUntil);
+    }
+    await TenantRepository(_database).ensureOrganizationIsolated(
+      cached.organizationId);
+    await TenantSubscriptionAccess.instance.restore(cached.organizationId);
+    if (!TenantSubscriptionAccess.instance.isAllowed) {
+      return LoginResult.failure(TenantSubscriptionAccess.instance.denialReason);
+    }
+    if (!await verify()) return LoginResult.failure('Déverrouillage refusé.');
+    // The selected account and the school must still match AFTER the
+    // operating-system dialog returns.
+    final recheck = await TenantRepository(_database).cachedMembership();
+    if (recheck == null || !recheck.active || !recheck.isManager ||
+        recheck.mustChangePassword ||
+        recheck.organizationId != cached.organizationId ||
+        recheck.cloudUserId != cached.cloudUserId ||
+        !TenantSubscriptionAccess.instance.isAllowed) {
+      return LoginResult.failure('Accès gestionnaire non valide.');
+    }
+    OperatorSession.authenticate(
+      userId: user.id,
+      cloudUserId: cached.cloudUserId,
+      displayName: user.displayName,
+      role: 'manager',
+      organizationId: cached.organizationId,
+      organizationCode: cached.organizationCode,
+      organizationName: cached.organizationName,
+    );
+    return LoginResult.success(user);
   }
 
   Future<AppUser?> authorizeSensitiveAction({required String username, required String pin, required String action, String? entityId}) async {
