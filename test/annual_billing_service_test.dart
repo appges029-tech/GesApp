@@ -194,20 +194,47 @@ void main() {
 
   test('période soldée reste visible mais ne peut être encaissée deux fois', () async {
     await calendar.saveMonthlyDeadlines({
-      '2026-10':DateTime(2026,10,17),
-      '2026-11':DateTime(2026,11,10),
+      '2026-10': DateTime(2026, 10, 17),
+      '2026-11': DateTime(2026, 11, 10),
     });
-    final id=await students.add(firstName:'Zoé',
-      lastName:'Soldée',classroomId:classroomId);
-    final first=(await finance.unpaidForPayer(studentId:id)).first;
-    await AppDatabase.instance.db.update('dues',
-      {'amount_paid':30000,'status':'paid'},
-      where:'id=?',whereArgs:[first.id]);
-    final all=await finance.unpaidForPayer(studentId:id,includePaid:true);
-    final dueOnly=await finance.unpaidForPayer(studentId:id);
-    expect(all.length,2);
-    expect(dueOnly.length,1);
-    expect(all.firstWhere((x)=>x.id==first.id).balance,0);
+    final id = await students.add(
+      firstName: 'Zoé', lastName: 'Soldée', classroomId: classroomId);
+    final initial = await finance.unpaidForPayer(studentId: id);
+    // Les dates facultatives ne suppriment pas les mensualités dues.
+    expect(initial, hasLength(10));
+    final october = initial.firstWhere((d) => d.periodKey == '2026-10');
+    final november = initial.firstWhere((d) => d.periodKey == '2026-11');
+    expect(october.dueDate, DateTime(2026, 10, 17));
+    expect(november.dueDate, DateTime(2026, 11, 10));
+
+    await CashRepository(AppDatabase.instance).open(
+      accountId: 'main_cash', openingAmount: 0);
+    final receipt = await finance.recordPayment(
+      studentId: id, amount: 30000, method: 'Espèces',
+      cashAccountId: 'main_cash', dueIds: [october.id]);
+    expect(receipt, isNotEmpty);
+
+    final all = await finance.unpaidForPayer(
+      studentId: id, includePaid: true);
+    final dueOnly = await finance.unpaidForPayer(studentId: id);
+    expect(all, hasLength(10));
+    expect(dueOnly, hasLength(9));
+    expect(all.firstWhere((d) => d.id == october.id).balance, 0);
+    expect(all.firstWhere((d) => d.id == october.id).status, 'paid');
+    expect(dueOnly.any((d) => d.id == october.id), isFalse);
+    expect(await finance.outstandingForStudent(id), 270000);
+
+    // Une échéance soldée ne peut plus être sélectionnée pour un nouvel
+    // encaissement, même si les neuf autres restent impayées.
+    await expectLater(
+      finance.recordPayment(
+        studentId: id, amount: 30000, method: 'Espèces',
+        cashAccountId: 'main_cash', dueIds: [october.id]),
+      throwsA(isA<StateError>()));
+    final payments = await AppDatabase.instance.db.query(
+      'payments', where: 'student_id=?', whereArgs: [id]);
+    expect(payments, hasLength(1));
+    expect(await finance.availableCredit(studentId: id), 0);
   });
 
   test('un calendrier mensuel rejette une date limite hors période', () async {
