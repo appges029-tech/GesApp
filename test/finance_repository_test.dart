@@ -107,17 +107,12 @@ void main() {
       validFrom: validFrom,
     );
 
-    await dateEnrollmentFixtures();
-    final created = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
-    );
-    expect(created, 1);
     final dues = await finance.dues();
-    expect(dues, hasLength(1));
-    expect(dues.single.feeName, 'Scolarité');
-    expect(dues.single.amountDue, 20000);
+    expect(dues, hasLength(10)); // 9 mensualités + 1 inscription annuelle.
+    expect(dues.where((d) => d.feeName == 'Scolarité'), hasLength(9));
+    expect(dues.where((d) => d.feeName == 'Inscription annuelle'), hasLength(1));
+    expect(dues.where((d) => d.feeName == 'Scolarité')
+      .every((d) => d.amountDue == 20000), isTrue);
   });
 
 
@@ -152,7 +147,7 @@ void main() {
       ),
       throwsA(isA<StateError>()),
     );
-    expect(await finance.dues(), isEmpty);
+    expect((await finance.dues()).length, 9);
   });
 
   test('un forfait individuel remplace le tarif standard', () async {
@@ -166,12 +161,6 @@ void main() {
 
     await finance.addFeeCategory(name: 'Scolarité', periodicity: 'mensuelle');
     final fee = (await finance.feeCategories()).single;
-    await finance.addFeeGrid(
-      feeId: fee.id,
-      cycleId: target.$1,
-      amount: 20000,
-      validFrom: DateTime(2026, 8, 1),
-    );
     await finance.createPackage(
       type: 'individual',
       feeId: fee.id,
@@ -180,16 +169,13 @@ void main() {
       reason: 'Bourse',
       validFrom: DateTime(2026, 9, 1),
     );
-
-    await dateEnrollmentFixtures();
-    await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
+    await finance.addFeeGrid(
+      feeId: fee.id, cycleId: target.$1,
+      amount: 20000, validFrom: DateTime(2026, 8, 1),
     );
     final dues = await finance.dues();
-    expect(dues, hasLength(1));
-    expect(dues.single.amountDue, 12000);
+    expect(dues, hasLength(9));
+    expect(dues.every((d) => d.amountDue == 12000), isTrue);
   });
 
 
@@ -244,12 +230,6 @@ void main() {
 
     await finance.addFeeCategory(name: 'Scolarité', periodicity: 'mensuelle');
     final fee = (await finance.feeCategories()).single;
-    await finance.addFeeGrid(
-      feeId: fee.id,
-      cycleId: target.$1,
-      amount: 20000,
-      validFrom: DateTime(2026, 8, 1),
-    );
     await finance.createPackage(
       type: 'family',
       feeId: fee.id,
@@ -258,18 +238,13 @@ void main() {
       reason: 'Forfait fratrie',
       validFrom: DateTime(2026, 9, 1),
     );
-
-    await dateEnrollmentFixtures();
-    final created = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
+    await finance.addFeeGrid(
+      feeId: fee.id, cycleId: target.$1,
+      amount: 20000, validFrom: DateTime(2026, 8, 1),
     );
-    expect(created, 1);
     final dues = await finance.dues();
-    expect(dues, hasLength(1));
-    expect(dues.single.amountDue, 30000);
-    expect(dues.single.studentName, contains('Famille'));
+    expect(dues, hasLength(9));
+    expect(dues.every((d) => d.amountDue == 30000), isTrue);
   });
 
   test('annuler un paiement rétablit exactement le solde', () async {
@@ -288,13 +263,6 @@ void main() {
       amount: 20000,
       validFrom: DateTime(2026, 8, 1),
     );
-    await dateEnrollmentFixtures();
-    await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
-    );
-
     await cash.open(accountId: 'main_cash', openingAmount: 0);
     final receipt = await finance.recordPayment(
       studentId: student.id,
@@ -302,7 +270,7 @@ void main() {
       method: 'Espèces',
       cashAccountId: 'main_cash',
     );
-    var due = (await finance.dues()).single;
+    var due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 7000);
     expect(due.status, 'partial');
 
@@ -311,10 +279,10 @@ void main() {
     );
     await finance.cancelPayment(paymentId: payment.id, reason: 'Erreur de saisie');
 
-    due = (await finance.dues()).single;
+    due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 0);
     expect(due.status, 'unpaid');
-    expect(await finance.outstandingForStudent(student.id), 20000);
+    expect(await finance.outstandingForStudent(student.id), 180000);
     final report = await integrity.run();
     // This scenario deliberately creates a student without the required
     // administrative documents, so the global report can legitimately flag
@@ -356,12 +324,6 @@ void main() {
       cycleId: target.$1,
       amount: 10000,
       validFrom: DateTime(2026, 10, 1),
-    );
-    await dateEnrollmentFixtures();
-    await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
     );
     final bobDue = (await finance.dues()).firstWhere((d) => d.studentId == bob.id);
     await cash.open(accountId: 'main_cash', openingAmount: 0);
