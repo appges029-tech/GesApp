@@ -41,6 +41,46 @@ class FinanceRepository {
     return rows.isEmpty ? null : rows.first;
   }
 
+  /// Creates only the missing obligations for an already enrolled student.
+  /// Idempotent: existing debts, allocations and receipts are never updated.
+  Future<int> ensureAutomaticDuesForStudent(String studentId) async {
+    BusinessWriteGuard.ensureAllowed('billing.ensure_for_student');
+    final db = _database.db;
+    final yearId = await _activeSchoolYearId(db);
+    if (yearId == null) return 0;
+    final enrollments = await db.query('student_enrollments',
+      columns: ['student_id', 'school_year_id', 'classroom_id', 'effective_from'],
+      where: "student_id=? AND school_year_id=? AND status='active'",
+      whereArgs: [studentId, yearId], limit: 1);
+    if (enrollments.isEmpty) return 0;
+    final e = enrollments.first;
+    final result = await db.transaction((tx) =>
+      const AnnualBillingService().createForEnrollment(
+        tx, studentId: studentId,
+        schoolYearId: yearId,
+        classroomId: e['classroom_id'] as String,
+        enrolledAt: DateTime.parse(e['effective_from'] as String),
+      ));
+    return result.created;
+  }
+
+  Future<int> ensureAutomaticDuesForFamily(String familyId) async {
+    BusinessWriteGuard.ensureAllowed('billing.ensure_for_family');
+    final db = _database.db;
+    final yearId = await _activeSchoolYearId(db);
+    if (yearId == null) return 0;
+    final members = await db.rawQuery('''
+      SELECT DISTINCT e.student_id
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id
+      WHERE s.family_id=? AND e.school_year_id=? AND e.status='active'
+    ''', [familyId, yearId]);
+    var created = 0;
+    for (final member in members) {
+      created += await ensureAutomaticDuesForStudent(member['student_id'] as String);
+    }
+    return created;
+  }
+
   // --- Rubriques et grille tarifaire ------------------------------------
 
   Future<List<FeeCategoryItem>> feeCategories() async {
