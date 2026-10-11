@@ -187,7 +187,9 @@ class DeviceQuickUnlockService {
   /// with an isolated Supabase client; never changes the app's cloud session.
   Future<bool> verifyCurrentCloudPassword(String password, String cloudUserId) async {
     if (password.isEmpty || !SupabaseBootstrap.isInitialized ||
-        !SupabaseConfig.isConfigured) return false;
+        !SupabaseConfig.isConfigured) {
+      return false;
+    }
     final current = SupabaseBootstrap.client.auth.currentUser;
     if (current == null || current.id != cloudUserId || current.email == null) {
       return false; // No new fast-unlock settings while offline.
