@@ -33,6 +33,8 @@ class SettingsScreen extends StatelessWidget {
         padding: WindowsUi.isDesktop(context) ? EdgeInsets.zero : const EdgeInsets.all(16),
         children: [
           _header(context),
+          const SizedBox(height: 16),
+          _settingsSearch(context),
           const SizedBox(height: 22),
           const _SectionTitle('Expérience'),
           WindowsModuleGrid(children: [
@@ -81,6 +83,65 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 28),
         ],
       ),
+    );
+  }
+
+  Widget _settingsSearch(BuildContext context) {
+    final links = <({String title, String subtitle, IconData icon, Widget page})>[
+      (title: 'Apparence', subtitle: 'Couleur et thème',
+        icon: Icons.palette_outlined, page: const AppearanceScreen()),
+      (title: 'Notifications hors ligne', subtitle: 'Alertes',
+        icon: Icons.notifications_active_outlined, page: const NotificationSettingsScreen()),
+      (title: 'Établissement', subtitle: 'Identité et logo',
+        icon: Icons.apartment_rounded, page: const EstablishmentScreen()),
+      (title: 'Années scolaires', subtitle: 'Année active',
+        icon: Icons.calendar_month_outlined, page: const SchoolYearsScreen()),
+      (title: 'Cycles et classes', subtitle: 'Classes de l’école',
+        icon: Icons.account_tree_outlined, page: const ClassesScreen()),
+      (title: 'Pièces du dossier élève', subtitle: 'Documents scolaires',
+        icon: Icons.folder_copy_outlined, page: const DocumentRequirementsScreen()),
+      (title: 'Paiements et comptes', subtitle: 'Caisses et Mobile Money',
+        icon: Icons.account_balance_wallet_outlined, page: const PaymentAccountsScreen()),
+      (title: 'Reçus et imprimante', subtitle: 'Impression A5 et POS',
+        icon: Icons.print_outlined, page: const ReceiptPrintingSettingsScreen()),
+      (title: 'Compte et synchronisation', subtitle: 'Accès en ligne et données',
+        icon: Icons.cloud_sync_outlined, page: const CloudSyncScreen()),
+      (title: 'Sécurité', subtitle: 'Accès des utilisateurs',
+        icon: Icons.shield_outlined, page: const SecuritySettingsScreen()),
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+        (title: 'Schéma et empreinte', subtitle: 'Biométrie Android',
+          icon: Icons.fingerprint, page: const QuickUnlockSettingsScreen()),
+      if (OperatorSession.isManager)
+        (title: 'Sauvegarde', subtitle: 'Sauvegarder et restaurer',
+          icon: Icons.backup_outlined, page: const BackupScreen()),
+      if (OperatorSession.isAdmin)
+        (title: 'Console Super Admin', subtitle: 'Contrôle des écoles',
+          icon: Icons.admin_panel_settings_outlined, page: const SuperAdminConsoleScreen()),
+      (title: 'Journal d’audit', subtitle: 'Historique et contrôles',
+        icon: Icons.history_outlined, page: const AuditLogScreen()),
+      (title: 'Diagnostic des données', subtitle: 'Cohérence des données',
+        icon: Icons.health_and_safety_outlined, page: const DataIntegrityScreen()),
+    ];
+    return SearchAnchor.bar(
+      barHintText: 'Rechercher un réglage…',
+      suggestionsBuilder: (searchContext, controller) {
+        final query = controller.text.trim().toLowerCase();
+        final matching = links.where((item) =>
+          (item.title + ' ' + item.subtitle).toLowerCase().contains(query)).toList();
+        if (matching.isEmpty) {
+          return [const ListTile(title: Text('Aucun réglage trouvé.'))];
+        }
+        return matching.map((item) => ListTile(
+          leading: Icon(item.icon),
+          title: Text(item.title),
+          subtitle: Text(item.subtitle),
+          onTap: () {
+            controller.closeView('');
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => item.page));
+          },
+        )).toList();
+      },
     );
   }
 
