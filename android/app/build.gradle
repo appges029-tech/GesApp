@@ -46,7 +46,7 @@ android {
     defaultConfig {
         applicationId = "com.godfirst.gesapp"
 
-        minSdk = flutter.minSdkVersion
+        minSdk = Math.max(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
 
         versionCode = flutter.versionCode
