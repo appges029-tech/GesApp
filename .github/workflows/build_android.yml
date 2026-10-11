@@ -25,6 +25,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Reclaim disk space for Android build
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Disk capacity before cleanup:"
+          df -h /
+
+          # Android compilation does not use these preinstalled toolchains.
+          # Keep the Android SDK build-tools, platforms, NDK and CMake intact.
+          for unused in \
+            /usr/share/dotnet \
+            /usr/local/swift \
+            /usr/local/share/powershell \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/lib/android/sdk/system-images \
+            /usr/local/lib/android/sdk/emulator; do
+            if [ -d "$unused" ]; then
+              echo "Removing unused runner component: $unused"
+              sudo rm -rf -- "$unused"
+            fi
+          done
+
+          echo "Disk capacity after cleanup:"
+          df -h /
+
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
@@ -92,6 +117,15 @@ jobs:
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" \
             --dart-define=SUPABASE_REDIRECT_URL="$SUPABASE_REDIRECT_URL"
+
+      - name: Check disk capacity before APK build
+        shell: bash
+        run: |
+          df -h .
+          available_kib=$(df -Pk . | awk 'NR == 2 {print $4}')
+          if (( available_kib < 4 * 1024 * 1024 )); then
+            echo "::warning::Less than 4 GiB free before Android packaging"
+          fi
 
       - name: Build Android Debug APK
         run: |
