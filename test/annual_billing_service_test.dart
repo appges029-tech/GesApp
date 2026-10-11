@@ -265,6 +265,11 @@ void main() {
       dueIds: [october.id, november.id],
     );
     expect(receipt, isNotEmpty);
+    final receiptLines = await finance.paymentReceiptLines(receipt);
+    expect(receiptLines.map((line) => line['period_key']).toList(),
+      ['2026-10', '2026-11']);
+    expect(receiptLines.map((line) => line['amount']).toList(),
+      [15000, 5000]);
     final after = await finance.unpaidForPayer(
       studentId: id, includePaid: true);
     expect(after.firstWhere((d) => d.id == october.id).amountPaid, 15000);
