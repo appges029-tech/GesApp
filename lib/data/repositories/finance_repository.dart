@@ -133,6 +133,15 @@ class FinanceRepository {
     final now=DateTime.now().toIso8601String();
     await _database.db.transaction((txn) async {
       final rows=await txn.query('fee_categories',where:'id=?',whereArgs:[feeId],limit:1);if(rows.isEmpty)throw StateError('Rubrique introuvable.');
+      if (rows.first['periodicity'] != periodicity) {
+        final linked = firstIntValue(await txn.rawQuery(
+          'SELECT COUNT(*) FROM dues WHERE fee_id=?', [feeId])) ?? 0;
+        if (linked > 0) {
+          throw StateError('Cette rubrique possède déjà des paiements ou obligations. '
+            'Pour changer sa périodicité, créez une nouvelle rubrique '
+            'afin de préserver l’historique.');
+        }
+      }
       final duplicate=firstIntValue(await txn.rawQuery('SELECT COUNT(*) FROM fee_categories WHERE lower(name)=lower(?) AND id<>? AND active=1',[trimmed,feeId]))??0;if(duplicate>0)throw StateError('Une autre rubrique active porte déjà ce nom.');
       await txn.update('fee_categories',{'name':trimmed,'periodicity':periodicity,'active':active?1:0,'updated_at':now},where:'id=?',whereArgs:[feeId]);
       await txn.insert('audit_log',{'entity_type':'fee_category','entity_id':feeId,'action':'update','old_value':'${rows.first['name']}/${rows.first['periodicity']}/${rows.first['active']}','new_value':'$trimmed/$periodicity/${active?1:0}','operator_name':OperatorSession.current,'operator_id':OperatorSession.userId,'operator_role':OperatorSession.role,'created_at':now});
