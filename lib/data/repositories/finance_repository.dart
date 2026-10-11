@@ -41,6 +41,46 @@ class FinanceRepository {
     return rows.isEmpty ? null : rows.first;
   }
 
+  /// Creates only the missing obligations for an already enrolled student.
+  /// Idempotent: existing debts, allocations and receipts are never updated.
+  Future<int> ensureAutomaticDuesForStudent(String studentId) async {
+    BusinessWriteGuard.ensureAllowed('billing.ensure_for_student');
+    final db = _database.db;
+    final yearId = await _activeSchoolYearId(db);
+    if (yearId == null) return 0;
+    final enrollments = await db.query('student_enrollments',
+      columns: ['student_id', 'school_year_id', 'classroom_id', 'effective_from'],
+      where: "student_id=? AND school_year_id=? AND status='active'",
+      whereArgs: [studentId, yearId], limit: 1);
+    if (enrollments.isEmpty) return 0;
+    final e = enrollments.first;
+    final result = await db.transaction((tx) =>
+      const AnnualBillingService().createForEnrollment(
+        tx, studentId: studentId,
+        schoolYearId: yearId,
+        classroomId: e['classroom_id'] as String,
+        enrolledAt: DateTime.parse(e['effective_from'] as String),
+      ));
+    return result.created;
+  }
+
+  Future<int> ensureAutomaticDuesForFamily(String familyId) async {
+    BusinessWriteGuard.ensureAllowed('billing.ensure_for_family');
+    final db = _database.db;
+    final yearId = await _activeSchoolYearId(db);
+    if (yearId == null) return 0;
+    final members = await db.rawQuery('''
+      SELECT DISTINCT e.student_id
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id
+      WHERE s.family_id=? AND e.school_year_id=? AND e.status='active'
+    ''', [familyId, yearId]);
+    var created = 0;
+    for (final member in members) {
+      created += await ensureAutomaticDuesForStudent(member['student_id'] as String);
+    }
+    return created;
+  }
+
   // --- Rubriques et grille tarifaire ------------------------------------
 
   Future<List<FeeCategoryItem>> feeCategories() async {
@@ -93,6 +133,15 @@ class FinanceRepository {
     final now=DateTime.now().toIso8601String();
     await _database.db.transaction((txn) async {
       final rows=await txn.query('fee_categories',where:'id=?',whereArgs:[feeId],limit:1);if(rows.isEmpty)throw StateError('Rubrique introuvable.');
+      if (rows.first['periodicity'] != periodicity) {
+        final linked = firstIntValue(await txn.rawQuery(
+          'SELECT COUNT(*) FROM dues WHERE fee_id=?', [feeId])) ?? 0;
+        if (linked > 0) {
+          throw StateError('Cette rubrique possède déjà des paiements ou obligations. '
+            'Pour changer sa périodicité, créez une nouvelle rubrique '
+            'afin de préserver l’historique.');
+        }
+      }
       final duplicate=firstIntValue(await txn.rawQuery('SELECT COUNT(*) FROM fee_categories WHERE lower(name)=lower(?) AND id<>? AND active=1',[trimmed,feeId]))??0;if(duplicate>0)throw StateError('Une autre rubrique active porte déjà ce nom.');
       await txn.update('fee_categories',{'name':trimmed,'periodicity':periodicity,'active':active?1:0,'updated_at':now},where:'id=?',whereArgs:[feeId]);
       await txn.insert('audit_log',{'entity_type':'fee_category','entity_id':feeId,'action':'update','old_value':'${rows.first['name']}/${rows.first['periodicity']}/${rows.first['active']}','new_value':'$trimmed/$periodicity/${active?1:0}','operator_name':OperatorSession.current,'operator_id':OperatorSession.userId,'operator_role':OperatorSession.role,'created_at':now});
@@ -650,7 +699,7 @@ class FinanceRepository {
   Future<void> _allocateToDues(Transaction txn, {required String paymentId, required int amount, required String duesWhere, required List<Object?> duesArgs}) async {
     var remaining = amount;
     final now = DateTime.now().toIso8601String();
-    final dueRows = await txn.query('dues', where: duesWhere, whereArgs: duesArgs, orderBy: 'due_date ASC, created_at ASC');
+    final dueRows = await txn.query('dues', where: duesWhere, whereArgs: duesArgs, orderBy: 'period_key ASC, due_date ASC, created_at ASC');
     for (final due in dueRows) {
       if (remaining <= 0) break;
       final balance = (due['amount_due'] as int) - (due['amount_paid'] as int);
@@ -678,8 +727,8 @@ class FinanceRepository {
     final payerArgs = <Object?>[studentId ?? familyId, includePaid ? 1 : 0];
     if (yearId != null) payerArgs.add(yearId);
     final rows = studentId != null
-      ? await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.student_id=? AND ( ? = 1 OR d.status!='paid') AND (d.package_id IS NULL OR d.package_id NOT IN (SELECT id FROM packages WHERE type='family'))$yearSql ORDER BY d.due_date,d.created_at",payerArgs)
-      : await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.family_id=? AND ( ? = 1 OR d.status!='paid')$yearSql ORDER BY d.due_date,d.created_at",payerArgs);
+      ? await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.student_id=? AND ( ? = 1 OR d.status!='paid') AND (d.package_id IS NULL OR d.package_id NOT IN (SELECT id FROM packages WHERE type='family'))$yearSql ORDER BY d.period_key,d.due_date,d.created_at",payerArgs)
+      : await _database.db.rawQuery("SELECT d.*, s.last_name || ' ' || s.first_name student_name, f.name fee_name FROM dues d JOIN students s ON s.id=d.student_id JOIN fee_categories f ON f.id=d.fee_id WHERE d.family_id=? AND ( ? = 1 OR d.status!='paid')$yearSql ORDER BY d.period_key,d.due_date,d.created_at",payerArgs);
     return rows.map((r)=>DueItem(id:r['id'] as String,studentId:r['student_id'] as String,studentName:r['student_name'] as String,feeName:r['fee_name'] as String,feeId:r['fee_id'] as String,periodKey:r['period_key'] as String,amountDue:r['amount_due'] as int,amountPaid:r['amount_paid'] as int,status:r['status'] as String,dueDate:r['due_date']==null?null:DateTime.parse(r['due_date'] as String))).toList();
   }
   Future<int> availableCredit({String? studentId,String? familyId}) async => firstIntValue(await _database.db.rawQuery("SELECT COALESCE(SUM(amount),0) FROM payer_credits WHERE status='available' AND ${studentId!=null?'student_id':'family_id'} = ?",[studentId??familyId]))??0;
@@ -961,7 +1010,7 @@ class FinanceRepository {
         args.addAll(selected);
       }
       final dues = await txn.rawQuery(
-        "SELECT d.* FROM dues d WHERE ${clauses.join(' AND ')} ORDER BY d.due_date, d.created_at",
+        "SELECT d.* FROM dues d WHERE ${clauses.join(' AND ')} ORDER BY d.period_key, d.due_date, d.created_at",
         args,
       );
       if (dues.isEmpty) throw StateError('Aucune échéance à solder avec cet avoir.');

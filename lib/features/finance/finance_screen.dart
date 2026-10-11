@@ -7,8 +7,6 @@ import 'accounting_screen.dart';
 import 'accounting_settings_screen.dart';
 import 'bank_reconciliation_screen.dart';
 import 'cash_screen.dart';
-import 'dues_generation_screen.dart';
-import 'billing_calendar_screen.dart';
 import 'dues_screen.dart';
 import 'fee_categories_screen.dart';
 import 'fee_grid_screen.dart';
@@ -29,7 +27,7 @@ class FinanceScreen extends StatelessWidget {
         'Retrouver un élève, sa rubrique et sa période', const PaymentsScreen()),
       _module(context, Icons.account_balance_wallet_outlined, 'Caisse et clôture',
         'Contrôler les opérations et le solde de caisse', const CashScreen()),
-      _module(context, Icons.warning_amber_rounded, 'Impayés et échéanciers',
+      _module(context, Icons.warning_amber_rounded, 'Suivi des impayés',
         'Retards et sommes restant à régler', const DuesScreen()),
       _module(context, Icons.phone_in_talk_outlined, 'Recouvrement',
         'Relances et suivi des engagements', const RecoveryScreen()),
@@ -39,12 +37,8 @@ class FinanceScreen extends StatelessWidget {
         'Définir les types de frais', const FeeCategoriesScreen()),
       _module(context, Icons.price_change_outlined, 'Grille tarifaire',
         'Tarifs par cycle ou par classe', const FeeGridScreen()),
-      _module(context, Icons.calendar_month_outlined, 'Calendrier',
-        'Dates limites par mois', const BillingCalendarScreen()),
       _module(context, Icons.workspace_premium_outlined, 'Forfaits et remises',
         'Ajustements autorisés', const PackagesScreen()),
-      _module(context, Icons.auto_awesome_outlined, 'Génération historique',
-        'Outil exceptionnel de contrôle', const DuesGenerationScreen()),
     ];
     final accounting = <Widget>[
       _module(context, Icons.account_tree_outlined, 'Comptabilité générale',
@@ -63,14 +57,14 @@ class FinanceScreen extends StatelessWidget {
 
     return WindowsPageScaffold(
       title: 'Finances',
-      subtitle: 'Encaissements, échéances, caisse, recouvrement et comptabilité',
+      subtitle: 'Encaissements, périodes dues, caisse, recouvrement et comptabilité',
       body: ListView(
         padding: WindowsUi.isDesktop(context) ? EdgeInsets.zero : const EdgeInsets.all(16),
         children: [
           _section(context, 'Opérations quotidiennes', 'Retrouver rapidement les actions essentielles'),
           WindowsModuleGrid(children: primary),
           const SizedBox(height: 26),
-          _section(context, 'Configuration scolaire', 'Rubriques, tarifs, calendrier et remises'),
+          _section(context, 'Configuration scolaire', 'Rubriques, tarifs et remises'),
           WindowsModuleGrid(children: configuration),
           const SizedBox(height: 26),
           _section(context, 'Comptabilité et contrôles', 'Outils administratifs et vérification'),

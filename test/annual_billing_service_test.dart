@@ -3,6 +3,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:gesapp/core/db/app_database.dart';
 import 'package:gesapp/core/session/operator_session.dart';
 import 'package:gesapp/data/repositories/finance_repository.dart';
+import 'package:gesapp/data/repositories/cash_repository.dart';
 import 'package:gesapp/data/repositories/settings_repository.dart';
 import 'package:gesapp/data/repositories/student_repository.dart';
 import 'package:gesapp/services/annual_billing_service.dart';
@@ -58,16 +59,16 @@ void main() {
         endDate:DateTime(2027,6,30),dueDay:10,
         admissionPolicy:admissionPolicy,graceDays:0);
 
-  test('inscription : neuf mensualités créées une seule fois', () async {
+  test('inscription : dix mois en terminale, y compris juillet', () async {
     await setupCalendar();
     final id=await students.add(firstName:'Jean',lastName:'Test',
       classroomId:classroomId);
     final dues=await finance.dues();
-    expect(dues.length,9);
+    expect(dues.length,10);
     expect(dues.first.periodKey,'2026-10');
-    expect(dues.last.periodKey,'2027-06');
+    expect(dues.last.periodKey,'2027-07');
     expect(dues.every((d)=>d.amountDue==30000),isTrue);
-    expect(await finance.outstandingForStudent(id),270000);
+    expect(await finance.outstandingForStudent(id),300000);
     final state=await AppDatabase.instance.db.query('student_billing_state',
       where:'student_id=?',whereArgs:[id]);
     expect(state.single['status'],'ready');
@@ -76,35 +77,31 @@ void main() {
         studentId:id,schoolYearId:state.single['school_year_id'] as String,
         classroomId:classroomId,enrolledAt:DateTime(2026,10,9)));
     expect(rerun.created,0);
-    expect((await finance.dues()).length,9);
+    expect((await finance.dues()).length,10);
   });
 
-  test('sans calendrier : état incomplet, sans fausse dette nulle', () async {
-    final id=await students.add(firstName:'Marie',
-      lastName:'Sans calendrier',classroomId:classroomId);
-    expect(await finance.dues(),isEmpty);
-    var state=await AppDatabase.instance.db.query('student_billing_state',
-      where:'student_id=?',whereArgs:[id]);
-    expect(state.single['status'],'pending_configuration');
-    await setupCalendar();
-    // L'activation du calendrier crée immédiatement les neuf lignes.
-    // Une réconciliation supplémentaire doit rester idempotente.
-    expect((await finance.unpaidForPayer(studentId:id)).length,9);
-    final result=await calendar.completePending();
-    expect(result.created,0);
-    expect(result.completed,0);
-    expect((await finance.unpaidForPayer(studentId:id)).length,9);
-    state=await AppDatabase.instance.db.query('student_billing_state',
-      where:'student_id=?',whereArgs:[id]);
-    expect(state.single['status'],'ready');
+  test('sans calendrier : les obligations naissent automatiquement du tarif', () async {
+    final id = await students.add(
+      firstName: 'Marie', lastName: 'Sans calendrier', classroomId: classroomId);
+    final dues = await finance.unpaidForPayer(studentId: id);
+    expect(dues.length, 10); // Terminale : octobre à juillet inclus.
+    expect(dues.first.periodKey, '2026-10');
+    expect(dues.last.periodKey, '2027-07');
+    final state = await AppDatabase.instance.db.query('student_billing_state',
+      where: 'student_id=?', whereArgs: [id]);
+    expect(state.single['status'], 'ready');
+    final reconciled = await calendar.completePending(includeReady: true);
+    expect(reconciled.created, 0);
+    expect((await finance.unpaidForPayer(studentId: id)).length, 10);
   });
+
 
   test('admission en cours de mois : option de période suivante', () async {
     await setupCalendar(admissionPolicy:'next_period');
     await students.add(firstName:'Aline',lastName:'Test',
       classroomId:classroomId);
     final dues=await finance.dues();
-    expect(dues.length,8);
+    expect(dues.length,9);
     expect(dues.first.periodKey,'2026-11');
   });
 
@@ -162,36 +159,38 @@ void main() {
       throwsA(isA<FormatException>()));
   });
 
-  test('dates variables : seuls les mois choisis génèrent des échéances', () async {
+  test('dates facultatives : elles adaptent les délais sans supprimer les mois', () async {
     await calendar.saveMonthlyDeadlines({
-      '2026-10':DateTime(2026,10,17),
-      '2026-12':DateTime(2026,12,5),
+      '2026-10': DateTime(2026, 10, 17),
+      '2026-12': DateTime(2026, 12, 5),
     });
-    final id=await students.add(firstName:'Octave',
-      lastName:'Dates réelles',classroomId:classroomId);
-    final dues=await finance.unpaidForPayer(studentId:id);
-    expect(dues.length,2);
-    final october=dues.firstWhere((d)=>d.periodKey=='2026-10');
-    final december=dues.firstWhere((d)=>d.periodKey=='2026-12');
-    expect(october.dueDate,DateTime(2026,10,17));
-    expect(december.dueDate,DateTime(2026,12,5));
+    final id = await students.add(
+      firstName: 'Octave', lastName: 'Dates réelles', classroomId: classroomId);
+    final dues = await finance.unpaidForPayer(studentId: id);
+    expect(dues.length, 10);
+    final october = dues.firstWhere((d) => d.periodKey == '2026-10');
+    final december = dues.firstWhere((d) => d.periodKey == '2026-12');
+    expect(october.dueDate, DateTime(2026, 10, 17));
+    expect(december.dueDate, DateTime(2026, 12, 5));
+    expect(dues.any((d) => d.periodKey == '2027-07'), isTrue);
   });
 
-  test('tarifs et calendrier activés après inscription complètent les obligations', () async {
-    final id=await students.add(firstName:'Dany',
-      lastName:'Inscrit avant dates',classroomId:classroomId);
-    expect(await finance.unpaidForPayer(studentId:id),isEmpty);
+
+  test('ajouter un calendrier après inscription ne recrée aucune dette', () async {
+    final id = await students.add(
+      firstName: 'Dany', lastName: 'Inscrit avant dates',
+      classroomId: classroomId);
+    expect((await finance.unpaidForPayer(studentId: id)).length, 10);
     await calendar.saveMonthlyDeadlines({
-      '2026-11':DateTime(2026,11,14),
+      '2026-11': DateTime(2026, 11, 14),
     });
-    final dues=await finance.unpaidForPayer(studentId:id);
-    expect(dues.length,1);
-    expect(dues.single.periodKey,'2026-11');
-    expect(dues.single.amountDue,30000);
-    final again=await calendar.completePending(includeReady:true);
-    expect(again.created,0);
-    expect((await finance.unpaidForPayer(studentId:id)).length,1);
+    final dues = await finance.unpaidForPayer(studentId: id);
+    expect(dues.length, 10);
+    final again = await calendar.completePending(includeReady: true);
+    expect(again.created, 0);
+    expect((await finance.unpaidForPayer(studentId: id)).length, 10);
   });
+
 
   test('période soldée reste visible mais ne peut être encaissée deux fois', () async {
     await calendar.saveMonthlyDeadlines({
@@ -217,24 +216,24 @@ void main() {
     }),throwsA(isA<StateError>()));
   });
 
-  test('nouvelle rubrique tarifée : échéancier reconnu pour élèves déjà inscrits', () async {
-    await calendar.saveMonthlyDeadlines({
-      '2026-10':DateTime(2026,10,15),
-    });
-    final id=await students.add(firstName:'Awa',
-      lastName:'Nouveau tarif',classroomId:classroomId);
-    expect((await finance.unpaidForPayer(studentId:id)).length,1);
+  test('nouvelle rubrique tarifée : obligations automatiques pour élèves inscrits', () async {
+    final id = await students.add(
+      firstName: 'Awa', lastName: 'Nouveau tarif',
+      classroomId: classroomId);
+    expect((await finance.unpaidForPayer(studentId: id)).length, 10);
     await finance.addFeeCategory(
-      name:'Fournitures mensuelles',periodicity:'mensuelle');
-    final newFee=(await finance.feeCategories()).firstWhere(
-      (fee)=>fee.name=='Fournitures mensuelles');
-    await finance.addFeeGrid(feeId:newFee.id,cycleId:cycleId,
-      amount:4000,validFrom:DateTime(2026,10,1));
-    final dues=await finance.unpaidForPayer(studentId:id);
-    expect(dues.length,2);
-    expect(dues.where((due)=>due.feeId==newFee.id).single.amountDue,4000);
-    expect(dues.fold<int>(0,(sum,due)=>sum+due.balance),34000);
+      name: 'Fournitures mensuelles', periodicity: 'mensuelle');
+    final newFee = (await finance.feeCategories()).firstWhere(
+      (fee) => fee.name == 'Fournitures mensuelles');
+    await finance.addFeeGrid(
+      feeId: newFee.id, cycleId: cycleId,
+      amount: 4000, validFrom: DateTime(2026, 10, 1));
+    final dues = await finance.unpaidForPayer(studentId: id);
+    expect(dues.length, 20);
+    expect(dues.where((d) => d.feeId == newFee.id).length, 10);
+    expect(dues.fold<int>(0, (sum, d) => sum + d.balance), 340000);
   });
+
 
   test('génération manuelle refusée si dates mensuelles automatiques en service', () async {
     await calendar.saveMonthlyDeadlines({
@@ -246,5 +245,84 @@ void main() {
       referenceDate:DateTime(2026,10,1)),
       throwsA(isA<StateError>()));
   });
+
+  test('rubrique trimestrielle : trois périodes, frais uniques : une seule', () async {
+    final id = await students.add(
+      firstName: 'Rosine', lastName: 'Différents frais',
+      classroomId: classroomId);
+    await finance.addFeeCategory(
+      name: 'Frais trimestriels', periodicity: 'trimestrielle');
+    await finance.addFeeCategory(
+      name: 'Écusson', periodicity: 'unique');
+    final fees = await finance.feeCategories();
+    final quarter = fees.firstWhere((f) => f.name == 'Frais trimestriels');
+    final single = fees.firstWhere((f) => f.name == 'Écusson');
+    await finance.addFeeGrid(
+      feeId: quarter.id, cycleId: cycleId,
+      amount: 10000, validFrom: DateTime(2026, 9, 1));
+    await finance.addFeeGrid(
+      feeId: single.id, cycleId: cycleId,
+      amount: 2500, validFrom: DateTime(2026, 9, 1));
+    final dues = await finance.unpaidForPayer(
+      studentId: id, includePaid: true);
+    final quarters = dues.where((d) => d.feeId == quarter.id).toList();
+    final unique = dues.where((d) => d.feeId == single.id).toList();
+    expect(quarters.map((d) => d.periodKey).toList(),
+      ['2026-T1', '2026-T2', '2026-T3']);
+    expect(unique, hasLength(1));
+    expect(unique.single.amountDue, 2500);
+    expect((await calendar.completePending(includeReady: true)).created, 0);
+  });
+
+  test('TA : versement de 20000 sur octobre et novembre à 15000/mois', () async {
+    await finance.addFeeGrid(
+      feeId: feeId, cycleId: cycleId,
+      amount: 15000, validFrom: DateTime(2026, 9, 2));
+    final id = await students.add(
+      firstName: 'Élève', lastName: 'TA', classroomId: classroomId);
+    final dues = await finance.unpaidForPayer(studentId: id, includePaid: true);
+    expect(dues.length, 10);
+    final october = dues.firstWhere((d) => d.periodKey == '2026-10');
+    final november = dues.firstWhere((d) => d.periodKey == '2026-11');
+
+    await CashRepository(AppDatabase.instance).open(
+      accountId: 'main_cash', openingAmount: 0);
+    final receipt = await finance.recordPayment(
+      studentId: id, amount: 20000,
+      method: 'Espèces', cashAccountId: 'main_cash',
+      dueIds: [october.id, november.id],
+    );
+    expect(receipt, isNotEmpty);
+    final receiptLines = await finance.paymentReceiptLines(receipt);
+    expect(receiptLines.map((line) => line['period_key']).toList(),
+      ['2026-10', '2026-11']);
+    expect(receiptLines.map((line) => line['amount']).toList(),
+      [15000, 5000]);
+    final after = await finance.unpaidForPayer(
+      studentId: id, includePaid: true);
+    expect(after.firstWhere((d) => d.id == october.id).amountPaid, 15000);
+    expect(after.firstWhere((d) => d.id == october.id).status, 'paid');
+    expect(after.firstWhere((d) => d.id == november.id).amountPaid, 5000);
+    expect(after.firstWhere((d) => d.id == november.id).balance, 10000);
+
+    final year = await calendar.load();
+    final reconciled = await AppDatabase.instance.db.transaction((tx) =>
+      const AnnualBillingService().createForEnrollment(
+        tx, studentId: id, schoolYearId: year.yearId,
+        classroomId: classroomId, enrolledAt: DateTime(2026, 10, 1)));
+    expect(reconciled.created, 0);
+    final stable = await finance.unpaidForPayer(
+      studentId: id, includePaid: true);
+    expect(stable.where((d) => d.periodKey == '2026-11').single.amountPaid, 5000);
+
+    await finance.recordPayment(
+      studentId: id, amount: 10000, method: 'Espèces',
+      cashAccountId: 'main_cash', dueIds: [november.id]);
+    final settled = await finance.unpaidForPayer(
+      studentId: id, includePaid: true);
+    expect(settled.firstWhere((d) => d.id == november.id).status, 'paid');
+    expect(settled.firstWhere((d) => d.id == november.id).balance, 0);
+  });
+
 
 }

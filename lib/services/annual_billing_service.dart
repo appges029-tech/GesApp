@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../core/db/app_database.dart';
 import '../core/session/business_write_guard.dart';
 import '../core/session/operator_session.dart';
+import 'school_billing_periods.dart';
 
 /// Crée des échéanciers sans toucher aux écritures déjà existantes.
 /// Appelé dans la transaction de l'inscription ou de la réinscription.
@@ -42,9 +43,15 @@ class AnnualBillingService {
       throw StateError('Inscription hors de l’année scolaire active.');
     }
     final classRows = await db.query('classrooms',
-        columns: ['cycle_id'], where: 'id=?', whereArgs: [classroomId], limit: 1);
+        columns: ['cycle_id', 'name'], where: 'id=?', whereArgs: [classroomId], limit: 1);
     if (classRows.isEmpty) throw StateError('Classe introuvable.');
     final cycleId = classRows.first['cycle_id'] as String;
+    final classroomName = classRows.first['name'] as String? ?? '';
+    final examSettings = await db.query('app_settings', columns: ['value'],
+      where: 'key=?', whereArgs: ['billing_exam_class:$classroomId'], limit: 1);
+    final isExamClass = examSettings.isNotEmpty
+        ? examSettings.first['value'] == 'true'
+        : SchoolBillingPeriods.isExamClass(classroomName);
     final studentRows = await db.query('students',
         columns: ['family_id'], where: 'id=?', whereArgs: [studentId], limit: 1);
     if (studentRows.isEmpty) throw StateError('Élève introuvable.');
@@ -64,73 +71,27 @@ class AnnualBillingService {
       final feeId = fee['id'] as String;
       final feeName = fee['name'] as String;
       final periodicity = fee['periodicity'] as String;
+      // Rubrique + tarif + inscription are sufficient. Calendars may only
+      // customize deadlines; they no longer determine which debts exist.
       final rules = await db.query('billing_calendar_rules',
-          where: 'school_year_id=? AND fee_id=? AND enabled=1',
-          whereArgs: [schoolYearId, feeId], limit: 1);
-      final useGlobalMonths = periodicity == 'mensuelle' &&
-          monthlyDeadlines.isNotEmpty;
-      if (rules.isEmpty && !useGlobalMonths) {
-        warnings.add('Dates limites manquantes : $feeName');
-        continue;
-      }
-      final rule = rules.isNotEmpty ? rules.first : <String, Object?>{
-        'start_date': yearStart.toIso8601String(),
-        'end_date': yearEnd.toIso8601String(),
-        'due_day': 1,
-        'grace_days': 0,
-        'admission_policy': 'current_period',
-      };
-      final rangeStart = _max(yearStart, _read(rule['start_date']));
-      final rangeEnd = _min(yearEnd, _read(rule['end_date']));
-      if (rangeStart.isAfter(rangeEnd)) {
-        warnings.add('Période invalide : $feeName');
-        continue;
-      }
-      final starts = <DateTime>[];
-      if (periodicity == 'mensuelle') {
-        if (useGlobalMonths) {
-          for (final key in monthlyDeadlines.keys.toList()..sort()) {
-            final parts = key.split('-');
-            final d = DateTime(int.parse(parts[0]), int.parse(parts[1]));
-            if (!d.isAfter(rangeEnd) &&
-                !DateTime(d.year, d.month + 1, 0).isBefore(rangeStart)) {
-              starts.add(_max(d, rangeStart));
-            }
-          }
-        } else {
-          for (var d = DateTime(rangeStart.year, rangeStart.month);
-              !d.isAfter(rangeEnd); d = DateTime(d.year, d.month + 1)) {
-            starts.add(_max(d, rangeStart));
-          }
-        }
-      } else if (periodicity == 'trimestrielle') {
-        for (var d = rangeStart; !d.isAfter(rangeEnd);
-            d = DateTime(d.year, d.month + 3, 1)) {
-          starts.add(d);
-        }
-      } else if (periodicity == 'annuelle' || periodicity == 'unique') {
-        starts.add(rangeStart);
-      } else {
-        warnings.add('Périodicité inconnue : $feeName');
-        continue;
-      }
-      for (var i = 0; i < starts.length; i++) {
-        final start = starts[i];
-        DateTime end;
-        String periodKey;
-        if (periodicity == 'mensuelle') {
-          end = _min(rangeEnd, DateTime(start.year, start.month + 1, 0));
-          periodKey = _key(start);
-        } else if (periodicity == 'trimestrielle') {
-          end = i + 1 < starts.length
-              ? starts[i + 1].subtract(const Duration(days: 1)) : rangeEnd;
-          periodKey = yearStart.year.toString() + '-T' + (i + 1).toString();
-        } else {
-          end = rangeEnd;
-          periodKey = yearStart.year.toString() + '-' + periodicity;
-        }
+        where: 'school_year_id=? AND fee_id=? AND enabled=1',
+        whereArgs: [schoolYearId, feeId], limit: 1);
+      final rule = rules.isEmpty ? null : rules.first;
+      // Historic calendar ranges never exclude months or July: dates are
+      // presentation/collection options, not prerequisites for billing.
+      final periods = SchoolBillingPeriods.forYear(
+        schoolYearStart: yearStart,
+        schoolYearEnd: yearEnd,
+        periodicity: periodicity,
+        isExamClass: isExamClass,
+      );
+      for (final period in periods) {
+        final start = _max(yearStart, period.start);
+        final end = period.end;
+        if (end.isBefore(start)) continue;
+        final periodKey = period.key;
         if (end.isBefore(admission)) continue;
-        if (rule['admission_policy'] == 'next_period' &&
+        if (rule?['admission_policy'] == 'next_period' &&
             admission.isAfter(start) && !admission.isAfter(end)) continue;
         final tariffDate = _max(start, admission);
         final grids = await db.rawQuery('''
@@ -179,15 +140,21 @@ class AnnualBillingService {
           warnings.add('Montant invalide : $feeName / $periodKey');
           continue;
         }
-        final dueDay = rule['due_day'] as int;
-        final last = DateTime(start.year, start.month + 1, 0).day;
-        final contractual = DateTime(start.year, start.month,
-            dueDay > last ? last : dueDay);
-        final grace = (rule['grace_days'] as int);
-        final configuredDeadline = useGlobalMonths
-            ? monthlyDeadlines[periodKey]! : contractual;
-        final deadline = _min(yearEnd,
-            _max(configuredDeadline, admission.add(Duration(days: grace))));
+        // By default payment becomes overdue only after the period ends.
+        // Optional calendars may set specific deadlines without creating dues.
+        DateTime deadline = end;
+        final configured = periodicity == 'mensuelle'
+            ? monthlyDeadlines[periodKey]
+            : null;
+        if (configured != null) {
+          deadline = _min(end, _max(start, configured));
+        } else if (rule != null) {
+          final day = rule['due_day'] as int? ?? 1;
+          final lastDay = DateTime(start.year, start.month + 1, 0).day;
+          final scheduled = DateTime(start.year, start.month,
+              day > lastDay ? lastDay : day);
+          deadline = _min(end, _max(scheduled, admission));
+        }
         final now = DateTime.now().toIso8601String();
         final rowId = await db.insert('dues', {
           'id': _uuid.v4(), 'student_id': studentId, 'family_id': familyId,
@@ -224,8 +191,8 @@ class BillingReconciliationResult {
 }
 
 
-/// Paramétrage explicite par établissement. Aucune règle de paiement
-/// implicite n'est insérée pendant les migrations ou les inscriptions.
+/// Calendrier facultatif pour personnaliser les dates limites.
+/// Les obligations sont déduites automatiquement du tarif et de la rubrique.
 class BillingCalendarRepository {
   BillingCalendarRepository(this._database);
   final AppDatabase _database;
@@ -257,9 +224,8 @@ class BillingCalendarRepository {
       DateTime.parse(y['end_date'] as String), fees);
   }
 
-  /// Dates limites mensuelles paramétrées pour l'année active.
-  /// Une absence de mois signifie qu'il n'est pas facturable : aucune
-  /// mensualité ni retard ne doit être inventé.
+  /// Dates limites facultatives. Une date absente n'empêche jamais
+  /// la création automatique de la mensualité correspondante.
   static Future<Map<String, DateTime>> readMonthlyDeadlines(
       DatabaseExecutor db, String schoolYearId) async {
     final rows = await db.query('app_settings', columns: ['value'],

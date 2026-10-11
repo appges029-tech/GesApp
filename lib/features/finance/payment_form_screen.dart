@@ -117,7 +117,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   }
 
   String _periodDeadline(DueItem due) {
-    if (due.dueDate == null) return ' · Date limite à configurer';
+    if (due.dueDate == null) return '';
     final d = due.dueDate!;
     return ' · Limite : ' + d.day.toString().padLeft(2, '0') + '/' +
         d.month.toString().padLeft(2, '0') + '/' + d.year.toString();
@@ -177,6 +177,11 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     setState(() => _loadingBalance = true);
     try {
       final repo = ref.read(financeRepositoryProvider);
+      if (payerType == _PayerType.student) {
+        await repo.ensureAutomaticDuesForStudent(studentId!);
+      } else {
+        await repo.ensureAutomaticDuesForFamily(familyId!);
+      }
       final value = _payerType == _PayerType.student
           ? await repo.outstandingForStudent(studentId!)
           : await repo.outstandingForFamily(familyId!);
@@ -204,6 +209,9 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         }
         _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
       });
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Chargement des périodes impossible : $error')));
     } finally {
       if (mounted) setState(() => _loadingBalance = false);
     }
@@ -561,10 +569,10 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.account_balance_wallet_outlined),
-                  title: const Text('Solde annuel restant (toutes rubriques)'),
+                  title: const Text('Reste à payer (toutes rubriques)'),
                   subtitle: Text(
                     _outstanding == 0
-                        ? 'Aucune échéance impayée'
+                        ? 'Aucune période impayée'
                         : 'Le versement concerne uniquement les périodes cochées.',
                   ),
                   trailing: Text(
@@ -603,8 +611,8 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               const Card(child: ListTile(
                 leading: Icon(Icons.info_outline),
                 title: Text('Aucune échéance disponible'),
-                subtitle: Text('Vérifiez les tarifs et les dates limites configurées. '
-                    'Aucune dette n’est créée lors de l’encaissement.'))),
+                subtitle: Text('Vérifiez que l’élève est inscrit dans l’année active '
+                    'et qu’un tarif est défini pour son cycle ou sa classe.'))),
             if (_payerType == _PayerType.student && _payerDues.isNotEmpty) ...[
               Text('4. Rubrique à payer',
                 style: Theme.of(context).textTheme.titleMedium),
@@ -619,12 +627,13 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 items: {
                   for (final due in _payerDues) due.feeId!: due.feeName,
                 }.entries.map((entry) => DropdownMenuItem(
-                  value: entry.key, child: Text(entry.value))).toList(),
+                  value: entry.key, child: Text(entry.value,
+                    maxLines: 1, overflow: TextOverflow.ellipsis))).toList(),
                 onChanged: _saving ? null : _chooseRubric,
               ),
               if (_feeId != null) ...[
                 const SizedBox(height: 12),
-                Text('5. Mois / trimestre / période',
+                Text('5. Sélectionner un ou plusieurs mois / trimestres',
                   style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
                 ..._payerDues.where((due) => due.feeId == _feeId).map((due) =>

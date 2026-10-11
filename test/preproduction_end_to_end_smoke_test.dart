@@ -95,13 +95,9 @@ void main() {
       validFrom: DateTime(2026, 10, 1),
     );
 
-    final generated = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      referenceDate: DateTime(2026, 10, 1),
-      dueDate: DateTime(2026, 10, 10),
-    );
-    expect(generated, 1);
+    final automatic = await finance.dues();
+    expect(automatic, hasLength(9));
+    expect(automatic.first.periodKey, '2026-10');
 
     await cash.open(accountId: 'main_cash', openingAmount: 0);
     final receipt = await finance.recordPayment(
@@ -112,7 +108,7 @@ void main() {
     );
     expect(receipt, isNotEmpty);
 
-    var due = (await finance.dues()).single;
+    var due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 10000);
     expect(due.status, 'partial');
 
@@ -123,7 +119,7 @@ void main() {
       reason: 'Smoke test contre-passation',
     );
 
-    due = (await finance.dues()).single;
+    due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 0);
     expect(due.status, 'unpaid');
 
