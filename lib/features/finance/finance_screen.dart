@@ -13,6 +13,7 @@ import 'fee_grid_screen.dart';
 import 'manual_journal_entry_screen.dart';
 import 'packages_screen.dart';
 import 'payments_screen.dart';
+import 'payment_form_screen.dart';
 import 'receipt_verification_screen.dart';
 import 'recovery_screen.dart';
 import 'supplier_accounting_screen.dart';
@@ -24,7 +25,9 @@ class FinanceScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final primary = <Widget>[
       _module(context, Icons.payments_outlined, 'Encaisser un paiement',
-        'Retrouver un élève, sa rubrique et sa période', const PaymentsScreen()),
+        'Choisir l’élève et enregistrer directement', const PaymentFormScreen()),
+      _module(context, Icons.receipt_long_outlined, 'Paiements et reçus',
+        'Rechercher, réimprimer ou rembourser', const PaymentsScreen()),
       _module(context, Icons.account_balance_wallet_outlined, 'Caisse et clôture',
         'Contrôler les opérations et le solde de caisse', const CashScreen()),
       _module(context, Icons.warning_amber_rounded, 'Suivi des impayés',
