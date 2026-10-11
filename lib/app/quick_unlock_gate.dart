@@ -29,17 +29,20 @@ class _QuickUnlockGateState extends State<QuickUnlockGate>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _check();
+    DeviceQuickUnlockService.instance.changes.addListener(_profileChanged);
+    _check(initial: true);
   }
 
-  Future<void> _check() async {
+  void _profileChanged() { _check(initial: false); }
+
+  Future<void> _check({required bool initial}) async {
     final scopeOrg = _org, scopeUser = _user;
     final profile = await DeviceQuickUnlockService.instance.profile(
       scopeOrg, scopeUser);
     if (!mounted || _org != scopeOrg || _user != scopeUser) return;
     setState(() {
       _profile = profile;
-      _locked = profile.enabled;
+      _locked = initial ? profile.enabled : (_locked && profile.enabled);
       _loading = false;
     });
   }
@@ -54,6 +57,7 @@ class _QuickUnlockGateState extends State<QuickUnlockGate>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    DeviceQuickUnlockService.instance.changes.removeListener(_profileChanged);
     super.dispose();
   }
 
