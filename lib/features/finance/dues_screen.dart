@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
-import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_ui.dart';
 import '../../data/models/finance_full.dart';
-import 'billing_calendar_screen.dart';
 
 /// Une échéance future est une obligation programmée, pas un retard.
 class DuesScreen extends ConsumerWidget {
@@ -61,24 +59,12 @@ class DuesScreen extends ConsumerWidget {
                       const SizedBox(height: 8),
                       const Text(
                         'Si un élève devrait avoir une dette, vérifiez la rubrique, '
-                        'le tarif de son cycle ou de sa classe, puis les dates '
-                        'limites du calendrier de facturation. '
-                        'Une rubrique sans calendrier complet ne crée pas '
-                        'd’échéance fictive.',
+                        'le tarif de son cycle ou de sa classe et '
+                        'son inscription dans l’année scolaire active. '
+                        'Les périodes sont générées automatiquement.',
                         textAlign: TextAlign.center,
                       ),
-                      if (!OperatorSession.isReadOnly) ...[
-                        const SizedBox(height: 16),
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const BillingCalendarScreen(),
-                            ),
-                          ),
-                          icon: const Icon(Icons.calendar_month_outlined),
-                          label: const Text('Vérifier le calendrier'),
-                        ),
-                      ],
+
                     ],
                   ),
                 ),
@@ -120,13 +106,13 @@ class DuesScreen extends ConsumerWidget {
       );
     if (WindowsUi.isDesktop(context)) {
       return WindowsPageScaffold(
-        title: 'Échéanciers et impayés',
+        title: 'Suivi des impayés',
         subtitle: 'Retards, échéances actuelles et obligations futures',
         body: body,
       );
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Échéanciers et impayés')),
+      appBar: AppBar(title: const Text('Suivi des impayés')),
       body: body,
     );
   }
