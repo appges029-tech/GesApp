@@ -80,6 +80,41 @@ void main() {
     expect(schoolYear.endDate, DateTime(2027, 7, 31));
   });
 
+  test('parcours simple : frais et tarif sont créés ensemble', () async {
+    final target = await createClass('S1');
+    await students.add(firstName: 'Élève', lastName: 'Exemple',
+      classroomId: target.$2);
+    await finance.createFeeWithTariff(
+      name: 'Scolarité test', periodicity: 'mensuelle',
+      amount: 15000, cycleId: target.$1, validFrom: DateTime(2026, 10, 1));
+    final fees = await finance.feeCategories();
+    expect(fees.single.name, 'Scolarité test');
+    final tariffs = await finance.feeGrid();
+    expect(tariffs.single.amount, 15000);
+    final dues = await finance.dues();
+    expect(dues, hasLength(9));
+    expect(dues.every((d) => d.amountDue == 15000), isTrue);
+  });
+
+  test('erreur de saisie ne laisse pas une rubrique orpheline', () async {
+    final target = await createClass('S2');
+    await expectLater(
+      finance.createFeeWithTariff(
+        name: 'Frais invalides', periodicity: 'mensuelle', amount: 0,
+        cycleId: target.$1), throwsArgumentError);
+    expect(await finance.feeCategories(), isEmpty);
+    expect(await finance.feeGrid(), isEmpty);
+    await finance.createFeeWithTariff(
+      name: 'Frais uniques', periodicity: 'unique', amount: 2000,
+      cycleId: target.$1, validFrom: DateTime(2026, 10, 1));
+    await expectLater(
+      finance.createFeeWithTariff(
+        name: 'Frais uniques', periodicity: 'unique', amount: 2000,
+        cycleId: target.$1), throwsStateError);
+    expect((await finance.feeCategories()).length, 1);
+    expect((await finance.feeGrid()).length, 1);
+  });
+
   test('une génération mensuelle ignore les rubriques annuelles', () async {
     final target = await createClass('Test-A');
     await students.add(

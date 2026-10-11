@@ -127,6 +127,89 @@ class FinanceRepository {
     });
   }
 
+  /// One-step setup for everyday school fees.
+  /// Category, applicable target and tariff are committed atomically:
+  /// no half-configured category remains if the amount or scope is invalid.
+  Future<void> createFeeWithTariff({
+    required String name,
+    required String periodicity,
+    required int amount,
+    String? cycleId,
+    String? classroomId,
+    DateTime? validFrom,
+  }) async {
+    _requireDirector();
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw ArgumentError('Indiquez le nom des frais.');
+    if (!const {'mensuelle', 'trimestrielle', 'annuelle', 'unique'}
+        .contains(periodicity)) {
+      throw ArgumentError('Choisissez une périodicité valide.');
+    }
+    if (amount <= 0) throw ArgumentError('Le montant doit être positif.');
+    if ((cycleId == null) == (classroomId == null)) {
+      throw ArgumentError('Choisissez un cycle ou une classe.');
+    }
+    final db = _database.db;
+    final now = DateTime.now().toIso8601String();
+    final feeId = _uuid.v4();
+    final tariffId = _uuid.v4();
+    final effective = (validFrom ?? DateTime.now()).toIso8601String();
+    await db.transaction((txn) async {
+      final duplicates = firstIntValue(await txn.rawQuery(
+        'SELECT COUNT(*) FROM fee_categories WHERE lower(name)=lower(?) AND active=1',
+        [trimmed])) ?? 0;
+      if (duplicates > 0) {
+        throw StateError('Ces frais existent déjà. Modifiez leur tarif dans la grille.');
+      }
+      final exists = firstIntValue(await txn.rawQuery(
+        classroomId == null
+          ? 'SELECT COUNT(*) FROM cycles WHERE id=? AND active=1'
+          : 'SELECT COUNT(*) FROM classrooms WHERE id=? AND active=1',
+        [classroomId ?? cycleId])) ?? 0;
+      if (exists == 0) {
+        throw StateError('Le cycle ou la classe sélectionné n’existe plus.');
+      }
+      await txn.insert('fee_categories', {
+        'id': feeId, 'name': trimmed, 'periodicity': periodicity,
+        'active': 1, 'created_at': now, 'updated_at': now,
+      });
+      await txn.insert('fee_grid', {
+        'id': tariffId, 'fee_id': feeId, 'cycle_id': cycleId,
+        'classroom_id': classroomId, 'amount': amount,
+        'valid_from': effective, 'created_at': now,
+      });
+      for (final event in [
+        {'type': 'fee_category', 'id': feeId,
+          'value': '$trimmed/$periodicity'},
+        {'type': 'fee_grid', 'id': tariffId,
+          'value': '$feeId/$cycleId/$classroomId/$amount/$effective'},
+      ]) {
+        await txn.insert('audit_log', {
+          'entity_type': event['type'],
+          'entity_id': event['id'],
+          'action': 'create',
+          'new_value': event['value'],
+          'operator_name': OperatorSession.current,
+          'operator_id': OperatorSession.userId,
+          'operator_role': OperatorSession.role,
+          'created_at': now,
+        });
+      }
+    });
+    // The normal lazy reconciliation also handles existing pupils. Avoid
+    // reporting a successful transaction as an error if recomputation fails.
+    try {
+      final yearId = await _activeSchoolYearId(db);
+      if (yearId != null) {
+        await BillingCalendarRepository(_database)
+            .completePending(includeReady: true);
+      }
+    } catch (_) {
+      // The saved fee and tariff remain available; missing dues are
+      // reconciled when the payer is selected at checkout.
+    }
+  }
+
   Future<void> updateFeeCategory({required String feeId,required String name,required String periodicity,bool active=true}) async {
     _requireDirector();final trimmed=name.trim();if(trimmed.isEmpty)throw ArgumentError('Le nom est obligatoire.');
     if(!const {'mensuelle','trimestrielle','annuelle','unique'}.contains(periodicity))throw ArgumentError('Périodicité invalide.');

@@ -4,6 +4,8 @@ import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
 import 'accounting_screen.dart';
+import '../../core/session/operator_session.dart';
+import 'simple_fee_setup_screen.dart';
 import 'accounting_settings_screen.dart';
 import 'bank_reconciliation_screen.dart';
 import 'cash_screen.dart';
@@ -68,7 +70,19 @@ class FinanceScreen extends StatelessWidget {
           WindowsModuleGrid(children: primary),
           const SizedBox(height: 26),
           _section(context, 'Configuration scolaire', 'Rubriques, tarifs et remises'),
-          WindowsModuleGrid(children: configuration),
+          if (OperatorSession.isManager)
+            WindowsModuleGrid(children: [
+              _module(context, Icons.add_circle_outline_rounded,
+                'Créer des frais scolaires',
+                'Nom, fréquence et montant dans un seul formulaire',
+                const SimpleFeeSetupScreen()),
+            ]),
+          ExpansionTile(
+            title: const Text('Gérer les rubriques et tarifs existants'),
+            subtitle: const Text('Options avancées : modifications, historique et remises'),
+            childrenPadding: const EdgeInsets.only(bottom: 12),
+            children: [WindowsModuleGrid(children: configuration)],
+          ),
           const SizedBox(height: 26),
           _section(context, 'Comptabilité et contrôles', 'Outils administratifs et vérification'),
           WindowsModuleGrid(children: accounting),

@@ -264,6 +264,38 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         const SnackBar(content: Text('Le montant dépasse les périodes choisies. Sélectionnez aussi les autres périodes concernées.')));
       return;
     }
+    final selectedLabels = _payerDues
+        .where((d) => _selectedDues.contains(d.id))
+        .map((d) => _periodLabel(d) + ' · ' + d.feeName).toList();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmer le paiement'),
+        content: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Montant reçu : ' + formatXaf(requested),
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text('Mode de paiement : ' + _method),
+            const SizedBox(height: 10),
+            const Text('Périodes sélectionnées :'),
+            ...selectedLabels.map((label) => Text('• ' + label)),
+            const SizedBox(height: 8),
+            if (requested < _selectedRemaining)
+              const Text('Versement partiel : le solde restera dû.'),
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Corriger')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirmer et enregistrer')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _saving) return;
     setState(() => _saving = true);
     try {
       final amount = int.parse(_amount.text.replaceAll(RegExp(r'\D'), ''));
@@ -590,7 +622,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.savings_outlined),
                   title: const Text('Avoir disponible'),
-                  subtitle: const Text('Utilisez cet avoir sur les échéances sélectionnées sans créer une nouvelle recette.'),
+                  subtitle: const Text('Utilisez cet avoir sur les périodes choisies sans nouvel encaissement.'),
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -610,7 +642,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 !_loadingBalance && _payerDues.isEmpty)
               const Card(child: ListTile(
                 leading: Icon(Icons.info_outline),
-                title: Text('Aucune échéance disponible'),
+                title: Text('Aucun frais à payer'),
                 subtitle: Text('Vérifiez que l’élève est inscrit dans l’année active '
                     'et qu’un tarif est défini pour son cycle ou sa classe.'))),
             if (_payerType == _PayerType.student && _payerDues.isNotEmpty) ...[
@@ -636,18 +668,26 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 Text('5. Sélectionner un ou plusieurs mois / trimestres',
                   style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
-                ..._payerDues.where((due) => due.feeId == _feeId).map((due) =>
-                  CheckboxListTile(
-                    dense: true, contentPadding: EdgeInsets.zero,
-                    value: _selectedDues.contains(due.id),
-                    onChanged: due.balance <= 0 || _saving
-                        ? null : (v) => _chooseDue(due, v == true),
-                    title: Text(_periodLabel(due) + (due.balance <= 0 ? ' · Soldé' : '')),
-                    subtitle: Text('Tarif : ${formatXaf(due.amountDue)} · '
-                      'Déjà payé : ${formatXaf(due.amountPaid)} · '
-                      'Reste : ${formatXaf(due.balance)}'
-                      '${_periodDeadline(due)}'),
-                  )),
+                Wrap(spacing: 8, runSpacing: 6, children: [
+                  for (final due in _payerDues.where((d) => d.feeId == _feeId))
+                    ChoiceChip(
+                      selected: _selectedDues.contains(due.id),
+                      onSelected: due.balance <= 0 || _saving ? null
+                          : (selected) => _chooseDue(due, selected),
+                      tooltip: 'Tarif : ' + formatXaf(due.amountDue) +
+                          ' · Déjà payé : ' + formatXaf(due.amountPaid) +
+                          _periodDeadline(due),
+                      label: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(_periodLabel(due),
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        Text(due.balance <= 0 ? 'Soldé'
+                          : due.amountPaid > 0 ? 'Partiel · ' + formatXaf(due.balance)
+                          : 'À payer · ' + formatXaf(due.balance),
+                          style: Theme.of(context).textTheme.labelSmall),
+                      ]),
+                    ),
+                ]),
               ],
               Card(child: ListTile(
                 title: const Text('Total des périodes sélectionnées'),
@@ -655,7 +695,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               )),
             ] else if (_payerType == _PayerType.family && _payerDues.isNotEmpty) ...[
-              Text('Échéances de la famille',
+              Text('Périodes à régler pour la famille',
                   style: Theme.of(context).textTheme.titleMedium),
               ..._payerDues.map((d) => CheckboxListTile(
                 dense: true, contentPadding: EdgeInsets.zero,
