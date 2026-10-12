@@ -14,6 +14,7 @@ on:
       - 'lib/services/document_identity.dart'
       - 'lib/services/unpaid_report_presenter.dart'
       - 'test/unpaid_report_presenter_test.dart'
+      - 'test/finance_pdf_document_test.dart'
       - '.github/workflows/finance_unpaid_pr_validation.yml'
 
 permissions:
@@ -41,6 +42,6 @@ jobs:
       - name: Static analysis
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - name: Test finance workflows and PDF data
-        run: flutter test test/finance_repository_test.dart test/unpaid_report_presenter_test.dart test/payment_notice_batch_pdf_service_test.dart test/receipt_service_test.dart
+        run: flutter test test/finance_repository_test.dart test/unpaid_report_presenter_test.dart test/payment_notice_batch_pdf_service_test.dart test/receipt_service_test.dart test/finance_pdf_document_test.dart
       - name: Build production web
         run: flutter build web --release --base-href /GesApp_2.2.2_AUDIT100_FIXED/
