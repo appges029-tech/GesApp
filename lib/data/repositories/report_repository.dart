@@ -232,9 +232,71 @@ class ReportRepository {
     final result=merged.values.toList();result.sort((x,y)=>((y['total'] as num).toInt()).compareTo((x['total'] as num).toInt()));return result;
   }
 
-  Future<List<LedgerEntry>> grandLedger({ReportFilter filter=const ReportFilter()}) async {
-    final rows=await cashJournal(filter:filter);rows.sort((a,b)=>('${a['date']}').compareTo('${b['date']}'));var balance=0;final result=<LedgerEntry>[];
-    for(final r in rows){final amount=r['amount'] as int;final credit=amount>0?amount:0;final debit=amount<0?-amount:0;balance+=credit-debit;result.add(LedgerEntry(date:DateTime.parse(r['date'] as String),reference:'${r['reference']}',description:'${r['type']} · ${r['description']}',debit:debit,credit:credit,balance:balance));}return result.reversed.toList();
+  /// Reconstitue le solde progressif à partir des flux du même périmètre.
+  /// Le report n'est pas un encaissement et n'affecte pas les colonnes débit/crédit.
+  static List<LedgerEntry> ledgerEntriesFromJournal(
+    List<Map<String, Object?>> journal, {
+    int openingBalance = 0,
+    DateTime? openingDate,
+  }) {
+    final rows = [...journal]
+      ..sort((a, b) => ('${a['date']}').compareTo('${b['date']}'));
+    var balance = openingBalance;
+    final result = <LedgerEntry>[
+      if (openingDate != null)
+        LedgerEntry(
+          date: openingDate,
+          reference: 'REPORT',
+          description: 'Solde antérieur à la période sélectionnée',
+          debit: 0,
+          credit: 0,
+          balance: openingBalance,
+        ),
+    ];
+    for (final row in rows) {
+      final amount = (row['amount'] as num).toInt();
+      final credit = amount > 0 ? amount : 0;
+      final debit = amount < 0 ? -amount : 0;
+      balance += credit - debit;
+      result.add(LedgerEntry(
+        date: DateTime.parse(row['date'] as String),
+        reference: '${row['reference']}',
+        description: '${row['type']} · ${row['description']}',
+        debit: debit,
+        credit: credit,
+        balance: balance,
+      ));
+    }
+    return result.reversed.toList();
+  }
+
+  Future<List<LedgerEntry>> grandLedger({
+    ReportFilter filter = const ReportFilter(),
+  }) async {
+    var openingBalance = 0;
+    if (filter.start != null) {
+      // Même périmètre scolaire et mêmes types de flux, mais strictement
+      // avant le début de la période. On ne reporte pas un solde fictif à zéro.
+      final previous = await cashJournal(
+        filter: ReportFilter(
+          schoolYearId: filter.schoolYearId,
+          cycleId: filter.cycleId,
+          classroomId: filter.classroomId,
+          familyId: filter.familyId,
+          periodKey: filter.periodKey,
+          end: filter.start,
+        ),
+      );
+      openingBalance = previous.fold<int>(
+        0, (sum, row) => sum + (row['amount'] as num).toInt(),
+      );
+    }
+    final current = await cashJournal(filter: filter);
+    return ledgerEntriesFromJournal(
+      current,
+      openingBalance: openingBalance,
+      openingDate: filter.start,
+    );
   }
 
 

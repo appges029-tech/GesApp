@@ -14,7 +14,7 @@ on:
       - 'lib/services/document_identity.dart'
       - 'lib/services/unpaid_report_presenter.dart'
       - 'test/unpaid_report_presenter_test.dart'
-      - 'test/finance_pdf_document_test.dart'
+      - 'test/finance_pdf_document_test.dart test/report_repository_ledger_test.dart'
       - '.github/workflows/finance_unpaid_pr_validation.yml'
 
 permissions:
