@@ -16,15 +16,30 @@ class RecoveryRepository {
     return rows.isEmpty ? null : rows.first['id'] as String?;
   }
 
-  Future<List<RecoveryCaseItem>> cases({String? search}) async {
-    final yearId = await _activeSchoolYearId();
+  Future<List<RecoveryCaseItem>> cases({
+    String? search,
+    String? schoolYearId,
+    String? cycleId,
+    String? classroomId,
+  }) async {
+    final yearId = schoolYearId ?? await _activeSchoolYearId();
+    if (yearId == null) throw StateError('Aucune année scolaire active.');
     final now = DateTime.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
     final conditions = <String>[
       "d.status!='paid'",
       'd.due_date IS NOT NULL',
       'd.due_date < ?',
     ];
-    final args = <Object?>[now.toIso8601String()];
+    final args = <Object?>[startOfToday.toIso8601String()];
+    if (cycleId != null) {
+      conditions.add('c.cycle_id = ?');
+      args.add(cycleId);
+    }
+    if (classroomId != null) {
+      conditions.add('c.id = ?');
+      args.add(classroomId);
+    }
     if (yearId != null) {
       conditions.add('d.school_year_id=?');
       args.add(yearId);
