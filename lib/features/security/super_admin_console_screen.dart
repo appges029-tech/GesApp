@@ -262,6 +262,16 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
             ),
             const SizedBox(height: 12),
             _Metrics(totals: totals),
+            if ((totals['subscriptions_expired'] as num? ?? 0) > 0 ||
+                (totals['sync_errors_recent'] as num? ?? 0) > 0) ...[
+              const SizedBox(height: 10),
+              Card(child: ListTile(
+                leading: const Icon(Icons.warning_amber_outlined),
+                title: const Text('Alertes de supervision'),
+                subtitle: Text('${totals['subscriptions_expired'] ?? 0} abonnement(s) expiré(s) · '
+                    '${totals['sync_errors_recent'] ?? 0} dernier(s) incident(s) de synchronisation connu(s)'),
+              )),
+            ],
             const SizedBox(height: 14),
             FilledButton.icon(
               onPressed: () => setState(() => _showCreate = !_showCreate),
@@ -310,7 +320,29 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
             const SizedBox(height: 22),
             _TitleRow(
               title: 'Établissements',
-              subtitle: schools.length.toString() + ' au total',
+              subtitle: '${schools.length}/${allSchools.length} affichés',
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _schoolQuery,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Rechercher une école, un code ou un responsable',
+                prefixIcon: Icon(Icons.search_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _schoolStatus,
+              decoration: const InputDecoration(labelText: 'Filtrer par statut d’abonnement'),
+              items: const [
+                DropdownMenuItem(value: 'all', child: Text('Tous les statuts')),
+                DropdownMenuItem(value: 'active', child: Text('Abonnement actif')),
+                DropdownMenuItem(value: 'expired', child: Text('Abonnement expiré')),
+                DropdownMenuItem(value: 'suspended', child: Text('École suspendue')),
+                DropdownMenuItem(value: 'legacy', child: Text('École historique')),
+              ],
+              onChanged: (status) => setState(() => _schoolStatus = status ?? 'all'),
             ),
             const SizedBox(height: 10),
             if (schools.isEmpty)
@@ -326,17 +358,33 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
                     await _service.setSchoolActive(school['id'].toString(), active);
                     await _refresh();
                   },
-                  onRenew: (cycle) async {
-                    await _service.renewSubscription(school['id'].toString(), cycle);
+                  onRenew: (cycle, reference) async {
+                    await _service.renewSubscription(school['id'].toString(), cycle,
+                        reference: reference);
                     await _refresh();
                   },
+                  onDetails: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(builder: (_) => SuperAdminSchoolDetailScreen(
+                      organizationId: school['id'].toString(),
+                      schoolName: school['name']?.toString() ?? 'Établissement',
+                    )),
+                  ),
                 ),
                 const SizedBox(height: 10),
               ],
             const SizedBox(height: 18),
-            const _TitleRow(
-              title: 'Activité en direct',
-              subtitle: '30 dernières opérations',
+            _TitleRow(
+              title: 'Activité récente',
+              subtitle: '${events.length} résultat(s) parmi les derniers événements',
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _activityQuery,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Filtrer les activités récentes',
+                prefixIcon: Icon(Icons.manage_search_outlined),
+              ),
             ),
             const SizedBox(height: 10),
             if (events.isEmpty)
@@ -411,6 +459,14 @@ class _Metrics extends StatelessWidget {
         'En ligne',
         (totals['online_devices'] ?? 0).toString(),
       ),
+      (Icons.credit_card_outlined, 'Abonnements actifs',
+       (totals['subscriptions_active'] ?? 0).toString()),
+      (Icons.event_busy_outlined, 'Abonnements expirés',
+       (totals['subscriptions_expired'] ?? 0).toString()),
+      (Icons.pending_actions_outlined, 'Demandes en attente',
+       (totals['requests_pending'] ?? 0).toString()),
+      (Icons.sync_problem_outlined, 'Incidents sync. récents',
+       (totals['sync_errors_recent'] ?? 0).toString()),
     ];
 
     return LayoutBuilder(
