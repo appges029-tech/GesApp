@@ -6,6 +6,7 @@ import '../../core/providers/repository_providers.dart';
 import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/recovery.dart';
+import 'finance_scope_filters.dart';
 
 class RecoveryScreen extends ConsumerStatefulWidget {
   const RecoveryScreen({super.key});
@@ -18,6 +19,8 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   final _search = TextEditingController();
   List<RecoveryCaseItem> _cases = const [];
   bool _loading = true;
+  String? _schoolYearId, _cycleId, _classroomId;
+  String? _error;
 
   @override
   void initState() {
@@ -32,10 +35,21 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (!mounted) return;
+    setState(() { _loading = true; _error = null; });
     try {
-      final rows = await ref.read(recoveryRepositoryProvider).cases(search: _search.text);
+      final rows = await ref.read(recoveryRepositoryProvider).cases(
+        search: _search.text,
+        schoolYearId: _schoolYearId,
+        cycleId: _cycleId,
+        classroomId: _classroomId,
+      );
       if (mounted) setState(() => _cases = rows);
+    } catch (error) {
+      if (mounted) setState(() {
+        _error = '$error';
+        _cases = const [];
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -211,6 +225,22 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: FinanceScopeFilters(
+              yearId: _schoolYearId, cycleId: _cycleId,
+              classroomId: _classroomId,
+              onYear: (value) {
+                _schoolYearId = value; _cycleId = null; _classroomId = null; _load();
+              },
+              onCycle: (value) {
+                _cycleId = value; _classroomId = null; _load();
+              },
+              onClassroom: (value) {
+                _classroomId = value; _load();
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: TextField(
               controller: _search,
               decoration: InputDecoration(
