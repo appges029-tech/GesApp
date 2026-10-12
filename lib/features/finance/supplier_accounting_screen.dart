@@ -4,6 +4,12 @@ import '../../core/layout/responsive_layout.dart';
 
 import '../../core/providers/repository_providers.dart';
 import '../../core/utils/formatters.dart';
+import 'package:pdf/pdf.dart';
+import '../../core/platform/pdf_output_service.dart';
+import '../../services/document_identity.dart';
+import '../../services/document_number_service.dart';
+import '../../services/excel_export_service.dart';
+import '../../services/report_pdf_service.dart';
 
 class SupplierAccountingScreen extends ConsumerStatefulWidget {
   const SupplierAccountingScreen({super.key});
@@ -16,6 +22,65 @@ class SupplierAccountingScreen extends ConsumerStatefulWidget {
 class _SupplierAccountingScreenState
     extends ConsumerState<SupplierAccountingScreen> {
   int _refresh = 0;
+  bool _exporting = false;
+
+  Future<void> _exportSupplier({required bool pdf}) async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final invoices = await ref.read(accountingRepositoryProvider).supplierInvoices();
+      if (invoices.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucune facture fournisseur à exporter.')));
+        return;
+      }
+      const headers = ['Facture', 'Fournisseur', 'Date', 'Échéance',
+        'Compte', 'Montant', 'Payé', 'Reste', 'Statut'];
+      final rows = <List<String>>[];
+      var total = 0, totalPaid = 0;
+      for (final invoice in invoices) {
+        final amount = (invoice['amount'] as num?)?.toInt() ?? 0;
+        final paid = (invoice['amount_paid'] as num?)?.toInt() ?? 0;
+        total += amount; totalPaid += paid;
+        rows.add([
+          '${invoice['invoice_number'] ?? ''}',
+          '${invoice['supplier_name'] ?? ''}',
+          '${invoice['invoice_date'] ?? ''}'.split('T').first,
+          '${invoice['due_date'] ?? '—'}'.split('T').first,
+          '${invoice['expense_account_name'] ?? ''}',
+          formatXaf(amount), formatXaf(paid), formatXaf(amount - paid),
+          '${invoice['status'] ?? ''}',
+        ]);
+      }
+      rows.add(['TOTAL GÉNÉRAL', '', '', '', '',
+        formatXaf(total), formatXaf(totalPaid),
+        formatXaf(total - totalPaid), '']);
+      if (pdf) {
+        final establishment = await ref.read(establishmentProvider.future);
+        final identity = await DocumentIdentity.fromEstablishment(establishment);
+        final registry = DocumentNumberService();
+        final reference = await registry.getOrCreate(
+          type: 'FOU', entityId: 'situation:${DateTime.now().microsecondsSinceEpoch}');
+        final bytes = await ReportPdfService().table(
+          title: 'État des factures fournisseurs', headers: headers, rows: rows,
+          identity: identity, reference: reference, pageFormat: PdfPageFormat.a4.landscape);
+        await registry.recordFingerprint(reference: reference, bytes: bytes);
+        await outputPdf(bytes, fileName: 'Fournisseurs_$reference.pdf');
+      } else {
+        await ExcelExportService().export(
+          fileName: 'Etat_factures_fournisseurs', headers: headers, rows: rows);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(pdf ? 'État fournisseurs PDF généré.'
+            : 'État fournisseurs Excel généré.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export fournisseurs impossible : $error')));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
 
   Future<void> _newInvoice() async {
     final repo = ref.read(accountingRepositoryProvider);
@@ -238,6 +303,16 @@ class _SupplierAccountingScreenState
         appBar: AppBar(
           title: const Text('Fournisseurs & dettes'),
           actions: [
+            IconButton(
+              onPressed: _exporting ? null : () => _exportSupplier(pdf: true),
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              tooltip: 'État fournisseurs PDF',
+            ),
+            IconButton(
+              onPressed: _exporting ? null : () => _exportSupplier(pdf: false),
+              icon: const Icon(Icons.table_view_outlined),
+              tooltip: 'État fournisseurs Excel',
+            ),
             IconButton(
               onPressed: _newInvoice,
               icon: const Icon(Icons.add),
