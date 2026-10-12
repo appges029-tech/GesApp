@@ -270,18 +270,17 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>{
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(formatXaf(item.amount), style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    if (!_showCancelled)
-                                      PopupMenuButton<String>(
+                                    PopupMenuButton<String>(
                                         onSelected: (v) {
                                           if (v == 'print') unawaited(_reprint(item));
                                           if (v == 'refund') unawaited(_refund(item));
                                           if (v == 'cancel') unawaited(_cancel(item));
                                         },
                                         itemBuilder: (_) => [
-                                          const PopupMenuItem(value: 'print', child: Text('Réimprimer')),
-                                          if (!OperatorSession.isReadOnly)
+                                          PopupMenuItem(value: 'print', child: Text(_showCancelled ? 'Reçu annulé' : 'Réimprimer')),
+                                          if (!_showCancelled && !OperatorSession.isReadOnly)
                                             const PopupMenuItem(value: 'refund', child: Text('Rembourser')),
-                                          if (!OperatorSession.isReadOnly)
+                                          if (!_showCancelled && !OperatorSession.isReadOnly)
                                             const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                                         ],
                                       ),
@@ -388,9 +387,7 @@ class _PaymentsDesktopList extends StatelessWidget {
                     Expanded(flex: 2, child: Text(formatXaf(net), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))),
                     SizedBox(
                       width: 46,
-                      child: showCancelled
-                          ? const Icon(Icons.block_outlined, size: 18)
-                          : PopupMenuButton<String>(
+                      child: PopupMenuButton<String>(
                               tooltip: 'Actions',
                               onSelected: (value) {
                                 if (value == 'print') onPrint(item);
@@ -398,10 +395,10 @@ class _PaymentsDesktopList extends StatelessWidget {
                                 if (value == 'cancel') onCancel(item);
                               },
                               itemBuilder: (_) => [
-                                const PopupMenuItem(value: 'print', child: Text('Réimprimer')),
-                                if (!OperatorSession.isReadOnly)
+                                PopupMenuItem(value: 'print', child: Text(showCancelled ? 'Reçu annulé' : 'Réimprimer')),
+                                if (!showCancelled && !OperatorSession.isReadOnly)
                                   const PopupMenuItem(value: 'refund', child: Text('Rembourser')),
-                                if (!OperatorSession.isReadOnly)
+                                if (!showCancelled && !OperatorSession.isReadOnly)
                                   const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                               ],
                             ),
