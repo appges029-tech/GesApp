@@ -52,15 +52,51 @@ class DocumentNumberService {
     });
   }
 
+  /// Conserve la première empreinte historique et archive chaque version
+  /// réellement générée (A5, POS et réimpressions) sans effacer les anciennes.
   Future<void> recordFingerprint({required String reference, required Uint8List bytes}) async {
     final digest = sha256.convert(bytes).toString();
-    await _database.db.insert('app_settings', {
-      'key': 'document_sha256:$reference',
-      'value': digest,
-      'updated_at': DateTime.now().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    final now = DateTime.now().toIso8601String();
+    await _database.db.transaction((txn) async {
+      await txn.insert('app_settings', {
+        'key': 'document_sha256:$reference',
+        'value': digest,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      await txn.insert('app_settings', {
+        'key': 'document_sha256:$reference:$digest',
+        'value': digest,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    });
   }
 
+  /// Vérifie le contenu exact d'un fichier PDF sélectionné, et non seulement
+  /// l'existence du numéro de reçu. Null = empreinte historique indisponible.
+  /// Cette preuve est locale : elle ne remplace pas une signature externe.
+  Future<bool?> verifyPdfFingerprint({
+    required String reference,
+    required Uint8List bytes,
+  }) async {
+    final normalized = reference.trim();
+    if (normalized.isEmpty) return null;
+    final variants = <String>[
+      normalized, '$normalized:pos80', '$normalized:pos58',
+    ];
+    final digest = sha256.convert(bytes).toString();
+    var hasRecordedFingerprint = false;
+    for (final variant in variants) {
+      final rows = await _database.db.query(
+        'app_settings',
+        columns: ['value'],
+        where: 'key = ? OR key LIKE ?',
+        whereArgs: ['document_sha256:$variant', 'document_sha256:$variant:%'],
+      );
+      if (rows.isNotEmpty) hasRecordedFingerprint = true;
+      if (rows.any((row) => row['value'] == digest)) return true;
+    }
+    return hasRecordedFingerprint ? false : null;
+  }
 
   Future<Map<String, String>?> referenceInfo(String reference) async {
     final rows = await _database.db.query(
