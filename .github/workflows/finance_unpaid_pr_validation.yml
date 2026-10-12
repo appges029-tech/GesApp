@@ -32,6 +32,8 @@ jobs:
           cache: true
       - name: Resolve dependencies
         run: flutter pub get
+      - name: Install SQLite Web runtime
+        run: dart run sqflite_common_ffi_web:setup --force
       - name: Static analysis
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - name: Test finance workflows and PDF data
