@@ -7,6 +7,15 @@ on:
       - '.github/workflows/build-web.yml'
       - 'lib/features/security/super_admin_*.dart'
       - 'lib/services/super_admin_service.dart'
+      - 'lib/features/finance/**'
+      - 'lib/features/reports/**'
+      - 'lib/data/repositories/report_repository.dart'
+      - 'lib/data/repositories/recovery_repository.dart'
+      - 'lib/services/report_pdf_service.dart'
+      - 'lib/services/billing_pdf_service.dart'
+      - 'lib/services/bilan_financier_pdf_service.dart'
+      - 'lib/services/document_identity.dart'
+      - 'lib/services/unpaid_report_presenter.dart'
   pull_request:
     branches: [main]
     paths:
