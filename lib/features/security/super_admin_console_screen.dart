@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../services/super_admin_service.dart';
+import 'super_admin_school_detail_screen.dart';
 
 class SuperAdminConsoleScreen extends StatefulWidget {
   const SuperAdminConsoleScreen({super.key});
@@ -15,6 +16,11 @@ class SuperAdminConsoleScreen extends StatefulWidget {
 class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
   final _email = TextEditingController();
   final _code = TextEditingController();
+  final _schoolQuery = TextEditingController();
+  final _activityQuery = TextEditingController();
+  String _schoolStatus = 'all';
+  DateTime? _lastSuccessAt;
+  bool _lastRefreshFailed = false;
   final _service = SuperAdminService.instance;
 
   Timer? _timer;
@@ -29,6 +35,8 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
     _timer?.cancel();
     _email.dispose();
     _code.dispose();
+    _schoolQuery.dispose();
+    _activityQuery.dispose();
     super.dispose();
   }
 
@@ -47,7 +55,7 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
       await _refresh();
       _timer?.cancel();
       _timer = Timer.periodic(
-        const Duration(seconds: 5),
+        const Duration(seconds: 30),
         (_) => _refresh(silent: true),
       );
     } catch (e) {
@@ -67,10 +75,15 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
         setState(() {
           _data = value;
           _error = null;
+          _lastRefreshFailed = false;
+          _lastSuccessAt = DateTime.now();
         });
       }
     } catch (e) {
-      if (mounted && !silent) setState(() => _error = _message(e));
+      if (mounted) setState(() {
+        _lastRefreshFailed = true;
+        if (!silent) _error = _message(e);
+      });
       if (!_service.isAuthenticated && mounted) {
         _timer?.cancel();
         setState(() => _data = null);
@@ -184,9 +197,25 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
 
   Widget _dashboard() {
     final totals = _map(_data!['totals']);
-    final schools = _list(_data!['organizations']);
+    final allSchools = _list(_data!['organizations']);
+    final search = _schoolQuery.text.trim().toLowerCase();
+    final schools = allSchools.where((school) {
+      final admin = _map(school['admin']);
+      final managers = _list(school['managers']);
+      final text = [school['name'], school['code'], admin['display_name'],
+        ...managers.map((manager) => manager['display_name'])]
+          .map((value) => (value ?? '').toString().toLowerCase()).join(' ');
+      return (search.isEmpty || text.contains(search)) &&
+        (_schoolStatus == 'all' || school['subscription_effective_status'] == _schoolStatus);
+    }).toList(growable: false);
     final requests = _list(_data!['pending_requests']);
-    final events = _list(_data!['recent_activity']);
+    final activitySearch = _activityQuery.text.trim().toLowerCase();
+    final events = _list(_data!['recent_activity']).where((event) {
+      final text = [event['organization_name'], event['module'],
+        event['event_type'], event['message']]
+          .map((value) => (value ?? '').toString().toLowerCase()).join(' ');
+      return activitySearch.isEmpty || text.contains(activitySearch);
+    }).toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -219,12 +248,16 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
               padding: EdgeInsets.zero,
               child: ListTile(
                 leading: const Icon(Icons.monitor_heart_rounded),
-                title: const Text(
-                  'Supervision active',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                title: Text(
+                  _lastRefreshFailed ? 'Supervision interrompue' : 'Supervision connectée',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
-                subtitle: const Text('Actualisation automatique toutes les 5 secondes'),
-                trailing: const _LiveDot(),
+                subtitle: Text(_lastRefreshFailed
+                    ? 'Actualisation échouée : données éventuellement anciennes'
+                    : 'Actualisation toutes les 30 secondes · Dernier succès : '
+                        '${_lastSuccessAt?.hour.toString().padLeft(2, '0') ?? '—'}:'
+                        '${_lastSuccessAt?.minute.toString().padLeft(2, '0') ?? '—'}'),
+                trailing: _LiveDot(active: !_lastRefreshFailed),
               ),
             ),
             const SizedBox(height: 12),
@@ -864,7 +897,8 @@ class _TitleRow extends StatelessWidget {
 }
 
 class _LiveDot extends StatelessWidget {
-  const _LiveDot();
+  const _LiveDot({required this.active});
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -872,7 +906,7 @@ class _LiveDot extends StatelessWidget {
       width: 11,
       height: 11,
       decoration: const BoxDecoration(
-        color: Colors.green,
+        color: active ? Colors.green : Colors.orange,
         shape: BoxShape.circle,
       ),
     );
