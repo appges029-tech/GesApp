@@ -5,6 +5,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../services/super_admin_service.dart';
 import 'super_admin_school_detail_screen.dart';
+import 'super_admin_history_screen.dart';
 
 class SuperAdminConsoleScreen extends StatefulWidget {
   const SuperAdminConsoleScreen({super.key});
@@ -296,6 +297,18 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
               title: 'Demandes administrateurs',
               subtitle: requests.length.toString() + ' en attente',
             ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => const SuperAdminHistoryScreen(
+                    kind: SuperAdminHistoryKind.requests,
+                  )),
+                ),
+                icon: const Icon(Icons.history_outlined),
+                label: const Text('Historique des demandes approuvées et refusées'),
+              ),
+            ),
             const SizedBox(height: 10),
             if (requests.isEmpty)
               const _EmptyCard(
@@ -376,6 +389,18 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
             _TitleRow(
               title: 'Activité récente',
               subtitle: '${events.length} résultat(s) parmi les derniers événements',
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => const SuperAdminHistoryScreen(
+                    kind: SuperAdminHistoryKind.activity,
+                  )),
+                ),
+                icon: const Icon(Icons.manage_history_outlined),
+                label: const Text('Journal complet et copie CSV'),
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
