@@ -369,6 +369,34 @@ void main() {
     );
   });
 
+  test('reçu familial conserve séparément le nom et la dette de chaque enfant', () async {
+    final target = await createClass('RecuFamille');
+    final family = await families.add(name: 'Famille Makaya');
+    await students.add(
+      firstName: 'Alice', lastName: 'Makaya',
+      classroomId: target.$2, familyId: family.id);
+    await students.add(
+      firstName: 'Blaise', lastName: 'Makaya',
+      classroomId: target.$2, familyId: family.id);
+    await finance.createFeeWithTariff(
+      name: 'Scolarité enfants', periodicity: 'mensuelle',
+      amount: 5000, cycleId: target.$1,
+      validFrom: DateTime(2026, 10, 1));
+    final october = (await finance.unpaidForPayer(familyId: family.id))
+        .where((d) => d.periodKey == '2026-10').toList();
+    expect(october, hasLength(2));
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    final receipt = await finance.recordFamilyPayment(
+      familyId: family.id, amount: 10000, method: 'Espèces',
+      dueIds: october.map((d) => d.id).toList(),
+      cashAccountId: 'main_cash');
+    final result = (await finance.verifyReceipt(receipt))!;
+    expect(result.lines, hasLength(2));
+    expect(result.lines.every((line) => line.amount == 5000), isTrue);
+    expect(result.lines.any((line) => line.label.contains('Alice')), isTrue);
+    expect(result.lines.any((line) => line.label.contains('Blaise')), isTrue);
+  });
+
   test('remboursement conserve les lignes initiales et rend le net vérifiable', () async {
     final target = await createClass('RecuRemboursement');
     await students.add(firstName: 'Béatrice', lastName: 'Historique', classroomId: target.$2);
