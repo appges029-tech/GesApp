@@ -44,6 +44,51 @@ class SuperAdminService {
     return _invoke({'action': 'overview'});
   }
 
+  Future<Map<String, dynamic>> organizationDetail(String organizationId) =>
+      _invoke({'action': 'organization_detail', 'organization_id': organizationId});
+
+  Future<Map<String, dynamic>> registrationHistory({int offset = 0}) =>
+      _invoke({'action': 'registration_history', 'offset': offset});
+
+  Future<Map<String, dynamic>> activityHistory({
+    String? organizationId,
+    int offset = 0,
+  }) => _invoke({
+    'action': 'activity_history',
+    'organization_id': organizationId ?? '',
+    'offset': offset,
+  });
+
+  Future<void> setManagerActive({
+    required String organizationId,
+    required String memberId,
+    required bool active,
+  }) async {
+    await _invoke({
+      'action': 'set_manager_active',
+      'organization_id': organizationId,
+      'member_id': memberId,
+      'active': active,
+    });
+  }
+
+  Future<void> resetManagerPassword({
+    required String organizationId,
+    required String memberId,
+    required String temporaryPassword,
+  }) async {
+    if (!_isStrongPassword(temporaryPassword)) {
+      throw ArgumentError('Mot de passe temporaire : 10 caractères, une '
+          'majuscule, une minuscule et un chiffre sont requis.');
+    }
+    await _invoke({
+      'action': 'reset_manager_password',
+      'organization_id': organizationId,
+      'member_id': memberId,
+      'temporary_password': temporaryPassword,
+    });
+  }
+
   Future<Map<String, dynamic>> createSchool({
     required String name,
     String? code,
