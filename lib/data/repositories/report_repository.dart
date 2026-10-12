@@ -63,7 +63,7 @@ class ReportRepository {
     if (yearId == null) throw StateError('Aucune année scolaire active pour les impayés.');
     c.add('d.school_year_id = ?'); a.add(yearId);
     if(scope.sql.isNotEmpty){c.add(scope.sql);a.addAll(scope.args);} if(filter.start!=null){c.add('COALESCE(d.due_date,d.created_at) >= ?');a.add(filter.start!.toIso8601String());} if(filter.end!=null){c.add('COALESCE(d.due_date,d.created_at) < ?');a.add(filter.end!.toIso8601String());}
-    return _db.db.rawQuery('''SELECT d.id due_id,s.registration_number,s.last_name||' '||s.first_name student,cy.name cycle,c.name classroom,fam.name family,f.name fee,d.period_key,d.amount_due,d.amount_paid,(d.amount_due-d.amount_paid) balance,d.due_date
+    return _db.db.rawQuery('''SELECT d.id due_id,s.id student_id,s.registration_number,s.last_name||' '||s.first_name student,cy.name cycle,c.name classroom,fam.name family,f.name fee,d.period_key,d.amount_due,d.amount_paid,(d.amount_due-d.amount_paid) balance,d.due_date
       FROM dues d JOIN students s ON s.id=d.student_id JOIN student_enrollments se ON se.student_id=s.id AND se.school_year_id=d.school_year_id JOIN classrooms c ON c.id=se.classroom_id JOIN cycles cy ON cy.id=c.cycle_id LEFT JOIN families fam ON fam.id=s.family_id JOIN fee_categories f ON f.id=d.fee_id
       WHERE ${c.join(' AND ')} ORDER BY d.due_date,s.last_name''',a);
   }
