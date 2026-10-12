@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
           "id,code,name,active,subscription_status,subscription_cycle,subscription_started_at,subscription_expires_at,subscription_confirmed_at,created_at,updated_at"
         ).eq("id", organizationId).maybeSingle(),
         server.from("organization_members").select(
-          "id,organization_id,role,username,display_name,active,status,must_change_password,created_at,last_password_change_at"
+          "id,organization_id,role,username,display_name,active,status,must_change_password,created_at"
         ).eq("organization_id", organizationId).order("role"),
         server.from("devices").select(
           "id,user_id,device_key,platform,app_version,last_seen_at,created_at"
