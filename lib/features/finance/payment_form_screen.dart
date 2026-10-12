@@ -21,7 +21,10 @@ import '../../data/models/family.dart';
 enum _PayerType { student, family }
 
 class PaymentFormScreen extends ConsumerStatefulWidget {
-  const PaymentFormScreen({super.key});
+  const PaymentFormScreen({super.key, this.initialStudentId, this.initialDueId});
+
+  final String? initialStudentId;
+  final String? initialDueId;
 
   @override
   ConsumerState<PaymentFormScreen> createState() => _PaymentFormScreenState();
@@ -60,6 +63,26 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   void initState() {
     super.initState();
     Future.microtask(_loadPaymentConfiguration);
+    if (widget.initialStudentId != null) Future.microtask(_prefillStudent);
+  }
+
+  Future<void> _prefillStudent() async {
+    try {
+      final students = await ref.read(studentsProvider.future);
+      final matches = students.where((s) => s.id == widget.initialStudentId);
+      if (!mounted || matches.isEmpty) return;
+      final student = matches.first;
+      setState(() {
+        _payerType = _PayerType.student;
+        _studentId = student.id;
+        _cycleId = student.cycleId;
+        _classroomId = student.classroomId;
+      });
+      await _loadOutstanding();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Préselection impossible : $error')));
+    }
   }
 
   Future<void> _loadPaymentConfiguration() async {
@@ -222,10 +245,15 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
           _feeId = null;
         } else {
           final available = dues.where((d) => d.balance > 0).toList();
-          _feeId = available.isNotEmpty ? available.first.feeId :
-              (dues.isNotEmpty ? dues.first.feeId : null);
-          for (final due in available) {
-            if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
+          final preselected = available.where((d) => d.id == widget.initialDueId).firstOrNull;
+          _feeId = preselected?.feeId ?? (available.isNotEmpty ? available.first.feeId :
+              (dues.isNotEmpty ? dues.first.feeId : null));
+          if (preselected != null) {
+            _selectedDues.add(preselected.id);
+          } else {
+            for (final due in available) {
+              if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
+            }
           }
         }
         _suggestAmountIfUntouched();
