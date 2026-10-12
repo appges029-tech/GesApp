@@ -84,6 +84,23 @@ class ReportRepository {
     if(rows.isEmpty)throw StateError('Échéance introuvable.');return rows.first;
   }
 
+
+  /// Situation consolidée de l'élève, limitée à l'année de l'échéance choisie.
+  /// Utilisée par les avis et factures ; n'emprunte jamais les tarifs d'une
+  /// autre année et ne modifie aucune donnée.
+  Future<List<Map<String, Object?>>> studentBillingDues(String dueId) =>
+      _db.db.rawQuery('''
+        SELECT f.name fee, d.period_key, d.due_date,
+          d.amount_due, d.amount_paid,
+          (d.amount_due - d.amount_paid) balance, d.status
+        FROM dues d
+        JOIN fee_categories f ON f.id = d.fee_id
+        WHERE d.student_id = (SELECT student_id FROM dues WHERE id = ?)
+          AND d.school_year_id =
+              (SELECT school_year_id FROM dues WHERE id = ?)
+        ORDER BY COALESCE(d.due_date, d.created_at), f.name
+      ''', [dueId, dueId]);
+
   Future<List<Map<String,Object?>>> cashJournal({ReportFilter filter=const ReportFilter()}) async {
     final paymentConditions=<String>["p.status='posted'"];final args=<Object?>[];
     final yearId=await _effectiveSchoolYearId(filter); final yearBounds=await _schoolYearBounds(yearId); if(yearId!=null){paymentConditions.add('p.school_year_id = ?');args.add(yearId);}
