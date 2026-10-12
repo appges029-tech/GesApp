@@ -47,38 +47,52 @@ class AccountingRepository {
         ''');
         for (final row in payments) {
           final amount = (row['amount'] as num).toInt();
-          final allocated = (row['allocated_amount'] as num?)?.toInt() ?? 0;
+          // Le montant affecté d'origine est durable, contrairement aux
+          // allocations restantes (supprimées à l'annulation/remboursement).
+          // Pour les paiements mixtes avoir + échéances, la ventilation
+          // multi-comptes reste une évolution comptable distincte.
+          final originalCredit = (row['credit_amount'] as num?)?.toInt() ?? 0;
+          final originallyAllocated = amount - originalCredit;
           final treasury = _treasuryAccount(row['account_type'] as String?);
-          final credit = allocated > 0 ? receivable : revenue;
+          final credit = originallyAllocated > 0 ? receivable : revenue;
           await _post(txn,
               sourceType: 'payment', sourceId: '${row['id']}', journalCode: _journal(row['account_type'] as String?),
               date: '${row['paid_at']}', reference: '${row['receipt_number']}',
               description: 'Encaissement — ${row['beneficiary']}', debitAccount: treasury,
               creditAccount: credit, amount: amount);
           if (row['status'] != 'posted' && row['cancelled_at'] != null) {
+            // Une écriture déjà postée est immuable : l'annulation doit
+            // contre-passer le compte réellement crédité à l'origine.
+            final postedCredit = await _originalPaymentCreditAccount(
+              txn, '${row['id']}',
+            ) ?? credit;
             await _post(txn,
                 sourceType: 'payment_cancel', sourceId: '${row['id']}', journalCode: _journal(row['account_type'] as String?),
                 date: '${row['cancelled_at']}', reference: 'ANN-${row['receipt_number']}',
                 description: 'Contre-passation — ${row['cancel_reason'] ?? row['beneficiary']}',
-                debitAccount: credit, creditAccount: treasury, amount: amount);
+                debitAccount: postedCredit, creditAccount: treasury, amount: amount);
           }
         }
 
         final refunds = await txn.rawQuery('''
-          SELECT r.*,p.receipt_number,p.cash_account_id,ca.type account_type,
-            COALESCE((SELECT SUM(pa.amount) FROM payment_allocations pa WHERE pa.payment_id=p.id),0) allocated_amount
+          SELECT r.*,p.receipt_number,p.amount original_payment_amount,p.cash_account_id,p.credit_amount,ca.type account_type
           FROM payment_refunds r JOIN payments p ON p.id=r.payment_id
           LEFT JOIN cash_accounts ca ON ca.id=COALESCE(r.cash_account_id,p.cash_account_id)
         ''');
         for (final row in refunds) {
           final amount = (row['amount'] as num).toInt();
-          final allocated = (row['allocated_amount'] as num?)?.toInt() ?? 0;
+          final originalCredit = (row['credit_amount'] as num?)?.toInt() ?? 0;
+          final paymentAmount = (row['original_payment_amount'] as num).toInt();
+          final fallback = paymentAmount > originalCredit ? receivable : revenue;
+          final paymentCredit = await _originalPaymentCreditAccount(
+            txn, '${row['payment_id']}',
+          ) ?? fallback;
           final treasury = _treasuryAccount(row['account_type'] as String?);
           await _post(txn,
               sourceType: 'refund', sourceId: '${row['id']}', journalCode: _journal(row['account_type'] as String?),
               date: '${row['refunded_at']}', reference: 'R-${row['receipt_number']}',
               description: 'Remboursement — ${row['reason']}',
-              debitAccount: allocated > 0 ? receivable : revenue, creditAccount: treasury, amount: amount);
+              debitAccount: paymentCredit, creditAccount: treasury, amount: amount);
         }
 
         // Dépenses payées immédiatement.
@@ -166,6 +180,23 @@ class AccountingRepository {
               debitAccount: '421200', creditAccount: _treasuryAccount(row['account_type'] as String?), amount: (row['amount'] as num).toInt());
         }
       });
+
+  /// Compte de produit/créance réellement crédité par l'écriture d'origine.
+  /// Ne reconstruit jamais les allocations effacées après annulation.
+  Future<String?> _originalPaymentCreditAccount(
+    DatabaseExecutor db, String paymentId,
+  ) async {
+    final lines = await db.rawQuery('''
+      SELECT l.account_code
+      FROM accounting_entry_lines l
+      JOIN accounting_entries e ON e.id = l.entry_id
+      WHERE e.source_type = 'payment' AND e.source_id = ?
+        AND e.status = 'posted' AND l.credit > 0
+      ORDER BY l.line_order
+      LIMIT 1
+    ''', [paymentId]);
+    return lines.isEmpty ? null : lines.single['account_code'] as String?;
+  }
 
   Future<void> _post(DatabaseExecutor db, {required String sourceType, required String sourceId,
       required String journalCode, required String date, required String reference,
