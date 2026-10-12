@@ -42,25 +42,15 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>{
       ),
     );
     if (format == null || !mounted) return;
-    final establishment = await ref.read(establishmentProvider.future);
-    final repo = ref.read(financeRepositoryProvider);
-    final verification = await repo.verifyReceipt(item.receiptNumber);
-    final lines = verification != null
-        ? verification.lines.map((line) => ReceiptLine(label: line.label, amount: line.amount)).toList()
-        : (await repo.paymentReceiptLines(item.receiptNumber))
-            .map((r) => ReceiptLine(label: '${r['fee_name']} · ${r['period_key']}', amount: r['amount'] as int))
-            .toList();
-    final prefs = await ReceiptPrintingPreferencesStore().load();
     try {
-      await ReceiptPrinter(ReceiptService()).printReceipt(
+      final repo = ref.read(financeRepositoryProvider);
+      final verification = await repo.verifyReceipt(item.receiptNumber);
+      if (verification == null) throw StateError('Reçu introuvable dans la base locale.');
+      final establishment = await ref.read(establishmentProvider.future);
+      final prefs = await ReceiptPrintingPreferencesStore().load();
+      await ReceiptPrinter(ReceiptService()).printVerifiedReceipt(
         establishment: establishment,
-        receiptNumber: item.receiptNumber,
-        beneficiaryName: item.studentName,
-        amount: item.amount,
-        paymentMethod: item.method,
-        paidAt: item.paidAt,
-        paymentReference: verification?.transactionReference ?? '',
-        lines: lines,
+        receipt: verification,
         format: format,
         directToPrinter: format.isPos,
         printerUrl: prefs.printerUrl,
@@ -69,7 +59,8 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>{
         copies: format.isPos ? prefs.copies : 1,
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'imprimer le reçu : $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Le paiement est conservé ; reçu non imprimé : $e")));
     }
   }
   Future<void> _cancel(PaymentItem item)async{final reason=TextEditingController();final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Annuler ce paiement ?'),content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Reçu ${item.receiptNumber} · ${formatXaf(item.amount)}'),const SizedBox(height:10),TextField(controller:reason,decoration:const InputDecoration(labelText:"Motif de l'annulation *"))]),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Retour')),FilledButton(onPressed:()=>Navigator.pop(c,reason.text.trim().isNotEmpty),child:const Text('Confirmer'))]));final value=reason.text.trim();reason.dispose();if(ok!=true)return;final authorization=await requestSensitiveAuthorization(context:context,repository:ref.read(securityRepositoryProvider),action:'payment_cancel_authorization',entityId:item.id);if(authorization==null)return;try{await ref.read(financeRepositoryProvider).cancelPayment(paymentId:item.id,reason:value);await _load(reset:true);ref.invalidate(dashboardProvider);ref.invalidate(unpaidDuesProvider);ref.invalidate(auditEntriesProvider);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Erreur : $e')));}}
@@ -279,18 +270,17 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>{
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(formatXaf(item.amount), style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    if (!_showCancelled)
-                                      PopupMenuButton<String>(
+                                    PopupMenuButton<String>(
                                         onSelected: (v) {
                                           if (v == 'print') unawaited(_reprint(item));
                                           if (v == 'refund') unawaited(_refund(item));
                                           if (v == 'cancel') unawaited(_cancel(item));
                                         },
                                         itemBuilder: (_) => [
-                                          const PopupMenuItem(value: 'print', child: Text('Réimprimer')),
-                                          if (!OperatorSession.isReadOnly)
+                                          PopupMenuItem(value: 'print', child: Text(_showCancelled ? 'Reçu annulé' : 'Réimprimer')),
+                                          if (!_showCancelled && !OperatorSession.isReadOnly)
                                             const PopupMenuItem(value: 'refund', child: Text('Rembourser')),
-                                          if (!OperatorSession.isReadOnly)
+                                          if (!_showCancelled && !OperatorSession.isReadOnly)
                                             const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                                         ],
                                       ),
@@ -397,9 +387,7 @@ class _PaymentsDesktopList extends StatelessWidget {
                     Expanded(flex: 2, child: Text(formatXaf(net), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))),
                     SizedBox(
                       width: 46,
-                      child: showCancelled
-                          ? const Icon(Icons.block_outlined, size: 18)
-                          : PopupMenuButton<String>(
+                      child: PopupMenuButton<String>(
                               tooltip: 'Actions',
                               onSelected: (value) {
                                 if (value == 'print') onPrint(item);
@@ -407,10 +395,10 @@ class _PaymentsDesktopList extends StatelessWidget {
                                 if (value == 'cancel') onCancel(item);
                               },
                               itemBuilder: (_) => [
-                                const PopupMenuItem(value: 'print', child: Text('Réimprimer')),
-                                if (!OperatorSession.isReadOnly)
+                                PopupMenuItem(value: 'print', child: Text(showCancelled ? 'Reçu annulé' : 'Réimprimer')),
+                                if (!showCancelled && !OperatorSession.isReadOnly)
                                   const PopupMenuItem(value: 'refund', child: Text('Rembourser')),
-                                if (!OperatorSession.isReadOnly)
+                                if (!showCancelled && !OperatorSession.isReadOnly)
                                   const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                               ],
                             ),

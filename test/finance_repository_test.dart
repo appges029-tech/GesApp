@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gesapp/services/document_number_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:gesapp/core/db/app_database.dart';
@@ -378,6 +381,11 @@ void main() {
       (p) => p.receiptNumber == receipt,
     );
     await finance.cancelPayment(paymentId: payment.id, reason: 'Erreur de saisie');
+    // L'historique du reçu doit survivre à la suppression des allocations actives.
+    final cancelledLines = await finance.paymentReceiptLines(receipt);
+    expect(cancelledLines, hasLength(1));
+    expect(cancelledLines.single['amount'], 7000);
+    expect((await finance.verifyReceipt(receipt))!.isCancelled, isTrue);
 
     due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 0);
@@ -407,6 +415,99 @@ void main() {
           .map((check) => '${check.label}: ${check.detail}')
           .join(' | '),
     );
+  });
+
+  test('reçu familial conserve séparément le nom et la dette de chaque enfant', () async {
+    final target = await createClass('RecuFamille');
+    final family = await families.add(name: 'Famille Makaya');
+    await students.add(
+      firstName: 'Alice', lastName: 'Makaya',
+      classroomId: target.$2, familyId: family.id);
+    await students.add(
+      firstName: 'Blaise', lastName: 'Makaya',
+      classroomId: target.$2, familyId: family.id);
+    await finance.createFeeWithTariff(
+      name: 'Scolarité enfants', periodicity: 'mensuelle',
+      amount: 5000, cycleId: target.$1,
+      validFrom: DateTime(2026, 10, 1));
+    final october = (await finance.unpaidForPayer(familyId: family.id))
+        .where((d) => d.periodKey == '2026-10').toList();
+    expect(october, hasLength(2));
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    final receipt = await finance.recordFamilyPayment(
+      familyId: family.id, amount: 10000, method: 'Espèces',
+      dueIds: october.map((d) => d.id).toList(),
+      cashAccountId: 'main_cash');
+    final result = (await finance.verifyReceipt(receipt))!;
+    expect(result.lines, hasLength(2));
+    expect(result.lines.every((line) => line.amount == 5000), isTrue);
+    expect(result.lines.any((line) => line.label.contains('Alice')), isTrue);
+    expect(result.lines.any((line) => line.label.contains('Blaise')), isTrue);
+  });
+
+  test('remboursement conserve les lignes initiales et rend le net vérifiable', () async {
+    final target = await createClass('RecuRemboursement');
+    await students.add(firstName: 'Béatrice', lastName: 'Historique', classroomId: target.$2);
+    final student = (await students.list()).single;
+    await finance.createFeeWithTariff(
+      name: 'Frais reçus', periodicity: 'mensuelle',
+      amount: 30000, cycleId: target.$1,
+      validFrom: DateTime(2026, 10, 1));
+    final october = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    final receipt = await finance.recordPayment(
+      studentId: student.id, amount: 30000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash');
+    final payment = (await finance.recentPayments()).single;
+    await finance.refundPayment(
+      paymentId: payment.id, amount: 10000, reason: 'Trop versé',
+      paymentMethod: 'Espèces', cashAccountId: 'main_cash');
+    // Le nom du bénéficiaire reste celui enregistré lors de l'encaissement,
+    // même si la fiche scolaire est modifiée après coup.
+    await AppDatabase.instance.db.update('students',
+      {'last_name': 'Modifié'},
+      where: 'id = ?', whereArgs: [student.id]);
+    final result = (await finance.verifyReceipt(receipt))!;
+    expect(result.beneficiaryName, contains('Historique'));
+    expect(result.amount, 30000);
+    expect(result.refundedAmount, 10000);
+    expect(result.netAmount, 20000);
+    expect(result.lines, hasLength(1));
+    expect(result.lines.single.amount, 30000); // photographie initiale, pas net
+  });
+
+  test('montant supérieur aux échéances sélectionnées ne crée ni paiement ni avoir', () async {
+    final target = await createClass('TropPercu');
+    await students.add(firstName: 'Luc', lastName: 'Règle', classroomId: target.$2);
+    final student = (await students.list()).single;
+    await finance.createFeeWithTariff(
+      name: 'Frais fixes', periodicity: 'mensuelle',
+      amount: 5000, cycleId: target.$1,
+      validFrom: DateTime(2026, 10, 1));
+    final october = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    await expectLater(finance.recordPayment(
+      studentId: student.id, amount: 10000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash'), throwsA(isA<StateError>()));
+    expect(await finance.recentPayments(), isEmpty);
+    expect((await finance.dues()).firstWhere((d) => d.id == october.id).amountPaid, 0);
+    expect(await finance.availableCredit(studentId: student.id), 0);
+  });
+
+  test('un PDF modifié est rejeté, les réimpressions gardent leurs empreintes', () async {
+    final service = DocumentNumberService();
+    const ref = 'REC-2026-123456';
+    final first = Uint8List.fromList([37, 80, 68, 70, 49]);
+    final second = Uint8List.fromList([37, 80, 68, 70, 50]);
+    final modified = Uint8List.fromList([37, 80, 68, 70, 51]);
+    expect(await service.verifyPdfFingerprint(reference: ref, bytes: first), isNull);
+    await service.recordFingerprint(reference: ref, bytes: first);
+    final initial = await service.fingerprint(ref);
+    await service.recordFingerprint(reference: ref, bytes: second);
+    expect(await service.fingerprint(ref), initial);
+    expect(await service.verifyPdfFingerprint(reference: ref, bytes: first), isTrue);
+    expect(await service.verifyPdfFingerprint(reference: ref, bytes: second), isTrue);
+    expect(await service.verifyPdfFingerprint(reference: ref, bytes: modified), isFalse);
   });
 
   test('caisse fermée : paiement refusé sans écriture, puis accepté après ouverture', () async {

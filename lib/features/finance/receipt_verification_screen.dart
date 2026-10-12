@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/providers/repository_providers.dart';
 import '../../core/utils/formatters.dart';
@@ -20,6 +21,9 @@ class _ReceiptVerificationScreenState extends ConsumerState<ReceiptVerificationS
   Map<String, String>? _documentResult;
   bool _loading = false;
   bool _searched = false;
+  bool _checkingPdf = false;
+  bool? _pdfMatches;
+  String? _pdfMessage;
 
   @override
   void dispose() {
@@ -40,6 +44,8 @@ class _ReceiptVerificationScreenState extends ConsumerState<ReceiptVerificationS
       _searched = true;
       _result = null;
       _documentResult = null;
+      _pdfMatches = null;
+      _pdfMessage = null;
     });
     try {
       final result = await ref.read(financeRepositoryProvider).verifyReceipt(number);
@@ -56,6 +62,41 @@ class _ReceiptVerificationScreenState extends ConsumerState<ReceiptVerificationS
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Vérification impossible : $e')),
       );
+    }
+  }
+
+  Future<void> _verifyPdfFile() async {
+    final number = _receiptController.text.trim();
+    if (number.isEmpty || _checkingPdf) return;
+    setState(() => _checkingPdf = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom, allowedExtensions: ['pdf'], withData: true);
+      if (picked == null) return;
+      final pdf = picked.files.single;
+      if (pdf.size > 20 * 1024 * 1024) {
+        throw StateError('PDF trop volumineux (limite 20 Mo).');
+      }
+      final bytes = pdf.bytes;
+      if (bytes == null) throw StateError('Lecture du PDF impossible.');
+      final matches = await DocumentNumberService().verifyPdfFingerprint(
+        reference: number, bytes: bytes);
+      if (!mounted) return;
+      setState(() {
+        _pdfMatches = matches;
+        _pdfMessage = matches == null
+          ? 'Aucune empreinte de ce reçu n’est enregistrée sur cet appareil. '
+            'Le fichier ne peut pas être authentifié ici.'
+          : matches
+            ? 'Le PDF correspond exactement à une version générée dans cette base GesApp.'
+            : 'Le PDF ne correspond à aucune empreinte connue pour ce reçu. '
+              'Son intégrité n’est pas confirmée.';
+      });
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Vérification du PDF impossible : $error')));
+    } finally {
+      if (mounted) setState(() => _checkingPdf = false);
     }
   }
 
@@ -93,6 +134,8 @@ class _ReceiptVerificationScreenState extends ConsumerState<ReceiptVerificationS
                     _result = null;
                     _documentResult = null;
                     _searched = false;
+                    _pdfMatches = null;
+                    _pdfMessage = null;
                   });
                 },
                 icon: const Icon(Icons.clear),
@@ -108,6 +151,26 @@ class _ReceiptVerificationScreenState extends ConsumerState<ReceiptVerificationS
             label: const Text('Vérifier l’authenticité'),
           ),
           const SizedBox(height: 20),
+          if ((_result != null || _documentResult != null) && !_loading) ...[
+            OutlinedButton.icon(
+              onPressed: _checkingPdf ? null : _verifyPdfFile,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: Text(_checkingPdf ? 'Vérification du fichier…' : 'Vérifier un fichier PDF'),
+            ),
+            const SizedBox(height: 6),
+            const Text('La vérification du numéro confirme un paiement local. '
+              'Pour contrôler le contenu exact, sélectionnez le PDF.'),
+            if (_pdfMessage != null) ...[
+              const SizedBox(height: 8),
+              _StatusCard(
+                icon: _pdfMatches == true ? Icons.verified_outlined : Icons.warning_amber_rounded,
+                title: _pdfMatches == true ? 'Empreinte PDF reconnue' : 'Empreinte PDF non vérifiée',
+                message: _pdfMessage!,
+                color: _pdfMatches == true ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.error,
+              ),
+            ],
+          ],
           if (_searched && !_loading && result == null && _documentResult == null)
             _StatusCard(
               icon: Icons.cancel_outlined,
@@ -140,10 +203,10 @@ class _ReceiptVerificationScreenState extends ConsumerState<ReceiptVerificationS
           if (result != null) ...[
             _StatusCard(
               icon: result.isCancelled ? Icons.warning_amber_rounded : Icons.verified_rounded,
-              title: result.isCancelled ? 'Reçu authentique mais annulé' : 'Reçu authentique',
+              title: result.isCancelled ? 'Paiement annulé — reçu non valable' : (result.refundedAmount > 0 ? 'Paiement avec remboursement' : 'Paiement enregistré'),
               message: result.isCancelled
                   ? 'Ce numéro existe, mais le paiement a été annulé et ne doit plus être considéré comme valable.'
-                  : 'Ce numéro correspond à un paiement enregistré dans GesApp.',
+                  : 'Ce numéro correspond à un paiement enregistré dans la base locale. Vérifiez le fichier PDF séparément.',
               color: result.isCancelled
                   ? Theme.of(context).colorScheme.error
                   : Theme.of(context).colorScheme.primary,
