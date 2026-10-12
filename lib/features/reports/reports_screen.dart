@@ -501,8 +501,8 @@ class _BilanFinancierScreenState extends ConsumerState<_BilanFinancierScreen> {
                   color: _global!.cashBalance >= 0 ? Colors.green.shade50 : Colors.red.shade50,
                   child: ListTile(
                     leading: Icon(Icons.savings_outlined, color: _global!.cashBalance >= 0 ? Colors.green.shade800 : Colors.red.shade800),
-                    title: const Text('Bénéfice net de l’école', style: TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: const Text('Recettes encaissées − dépenses'),
+                    title: const Text('Solde net des flux présentés', style: TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: const Text('Recettes affichées − dépenses affichées ; hors résultat comptable complet'),
                     trailing: Text(
                       formatXaf(_global!.cashBalance),
                       style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: _global!.cashBalance >= 0 ? Colors.green.shade800 : Colors.red.shade800),
