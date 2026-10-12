@@ -305,7 +305,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   Future<void> _printBilling(String dueId, {required bool invoice}) async {
     final data = await ref.read(reportRepositoryProvider).billingDetail(dueId);
     final establishment = await ref.read(establishmentProvider.future);
-    final identity = await DocumentIdentity.fromEstablishment(establishment);
+    final rawIdentity = await DocumentIdentity.fromEstablishment(establishment);
+    final yearLabel = data['school_year_label'] as String?;
+    final identity = yearLabel == null || yearLabel.isEmpty
+        ? rawIdentity : rawIdentity.forSchoolYear(yearLabel);
     final registry = DocumentNumberService();
     final reference = await registry.getOrCreate(type: invoice ? 'FAC' : 'ECH', entityId: dueId);
     final bytes = await BillingPdfService().build(data: data, invoice: invoice, reference: reference, identity: identity);
@@ -491,7 +494,7 @@ class _BilanFinancierScreenState extends ConsumerState<_BilanFinancierScreen> {
                 const SizedBox(height: 8),
                 _kpiWrap([
                   _kpi('Attendu', formatXaf(_global!.expected), Colors.blueGrey),
-                  _kpi('Encaissé', formatXaf(_global!.allocated), Colors.green.shade700),
+                  _kpi('Imputé aux échéances', formatXaf(_global!.allocated), Colors.green.shade700),
                   _kpi('Reste à recouvrer', formatXaf(_global!.outstanding), Colors.orange.shade800),
                   _kpi('Taux de recouvrement', '${(_global!.recoveryRate * 100).toStringAsFixed(1)} %', Colors.indigo),
                   _kpi('Recettes', formatXaf(_global!.revenue), Colors.green.shade700),
@@ -675,7 +678,7 @@ class _ReportTableScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
         appBar: AppBar(title: Text(title), actions: [
           IconButton(tooltip: 'PDF', icon: const Icon(Icons.picture_as_pdf_outlined), onPressed: rows.isEmpty ? null : () => _exportPdf(context, ref)),
-          IconButton(tooltip: 'Excel', icon: const Icon(Icons.table_view_outlined), onPressed: rows.isEmpty ? null : () async {final path=await ExcelExportService().export(fileName:title,headers:headers,rows:rows);if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Export Excel enregistré : $path'),duration:const Duration(seconds:5)));}),
+          IconButton(tooltip: 'Excel', icon: const Icon(Icons.table_view_outlined), onPressed: rows.isEmpty ? null : () async {final path=await ExcelExportService().export(fileName:title,headers:headers,rows:[if(scopeLabel.isNotEmpty) [scopeLabel, ...List<String>.filled(headers.length - 1, '')], ...rows]);if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Export Excel enregistré : $path'),duration:const Duration(seconds:5)));}),
         ]),
         body: rows.isEmpty ? const Center(child: Text('Aucune donnée')) : ResponsiveDataTable(headers: headers, rows: rows),
       );
