@@ -307,11 +307,11 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
               for (final request in requests) ...[
                 _PendingRequestCard(
                   request: request,
-                  onReviewed: (approve, cycle) async {
+                  onReviewed: (approve, cycle, note) async {
                     if (approve) {
                       await _service.approveRequest(request['id'].toString(), cycle);
                     } else {
-                      await _service.rejectRequest(request['id'].toString());
+                      await _service.rejectRequest(request['id'].toString(), note: note);
                     }
                     await _refresh();
                   },
@@ -1065,7 +1065,7 @@ class _EmptyCard extends StatelessWidget {
 class _PendingRequestCard extends StatefulWidget {
   const _PendingRequestCard({required this.request, required this.onReviewed});
   final Map<String, dynamic> request;
-  final Future<void> Function(bool approve, String cycle) onReviewed;
+  final Future<void> Function(bool approve, String cycle, String note) onReviewed;
 
   @override
   State<_PendingRequestCard> createState() => _PendingRequestCardState();
@@ -1076,30 +1076,52 @@ class _PendingRequestCardState extends State<_PendingRequestCard> {
   String _cycle = 'monthly';
 
   Future<void> _review(bool approve) async {
+    final reason = TextEditingController();
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(approve ? 'Valider cet administrateur ?' : 'Refuser la demande ?'),
-        content: Text(approve
-          ? 'Confirmez uniquement après réception du paiement. '
-            'Un établissement et un abonnement actif seront alors créés.'
-          : 'Cette action refuse la demande sans créer de compte actif.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(context, true),
-            child: Text(approve ? 'Valider le paiement' : 'Refuser')),
-        ],
+      builder: (dialog) => StatefulBuilder(
+        builder: (dialog, update) => AlertDialog(
+          title: Text(approve ? 'Valider cet administrateur ?' : 'Refuser la demande ?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(approve
+                ? 'Confirmez uniquement après réception du paiement. '
+                  'L’école et son abonnement seront alors créés.'
+                : 'Un motif sera enregistré dans l’historique de la demande.'),
+              if (!approve) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reason,
+                  onChanged: (_) => update(() {}),
+                  maxLength: 500,
+                  decoration: const InputDecoration(labelText: 'Motif du refus *'),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialog, false),
+                child: const Text('Annuler')),
+            FilledButton(
+              onPressed: !approve && reason.text.trim().isEmpty
+                  ? null : () => Navigator.pop(dialog, true),
+              child: Text(approve ? 'Valider le paiement' : 'Refuser'),
+            ),
+          ],
+        ),
       ),
     );
+    final note = reason.text.trim();
+    reason.dispose();
     if (confirm != true || !mounted) return;
     setState(() => _busy = true);
     try {
-      await widget.onReviewed(approve, _cycle);
+      await widget.onReviewed(approve, _cycle, note);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+        SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
