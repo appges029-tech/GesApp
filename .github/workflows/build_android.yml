@@ -154,6 +154,7 @@ jobs:
           ls -lh "$APK"
 
       - name: Upload APK
+        continue-on-error: true # Un quota d'artefacts plein ne rend pas l'APK compilé invalide.
         uses: actions/upload-artifact@v4
         with:
           name: GesApp-Android-Debug
