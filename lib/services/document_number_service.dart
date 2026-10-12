@@ -78,7 +78,7 @@ class DocumentNumberService {
     required String reference,
     required Uint8List bytes,
   }) async {
-    final normalized = reference.trim();
+    final normalized = reference.trim().toUpperCase();
     if (normalized.isEmpty) return null;
     final variants = <String>[
       normalized, '$normalized:pos80', '$normalized:pos58',
