@@ -198,16 +198,89 @@ class AccountingRepository {
     return _database.db.rawQuery('''SELECT e.id,e.entry_date,e.journal_code,e.reference,e.description,e.source_type,l.account_code,a.name account_name,l.debit,l.credit FROM accounting_entries e JOIN accounting_entry_lines l ON l.entry_id=e.id JOIN accounting_accounts a ON a.code=l.account_code WHERE e.status='posted' AND e.entry_date>=? AND e.entry_date<? ORDER BY e.entry_date,e.id,l.line_order''', [start.toIso8601String(), end.toIso8601String()]);
   }
 
-  Future<List<Map<String, Object?>>> trialBalance({required DateTime start, required DateTime end}) async {
+  /// Balance de la période : report d'ouverture et mouvements distincts.
+  /// Le solde final d'un compte est report + débit de période - crédit de période.
+  Future<List<Map<String, Object?>>> trialBalance({
+    required DateTime start,
+    required DateTime end,
+  }) async {
     await synchronize();
-    return _database.db.rawQuery('''SELECT a.code,a.name,COALESCE(SUM(CASE WHEN e.id IS NOT NULL THEN l.debit ELSE 0 END),0) debit,COALESCE(SUM(CASE WHEN e.id IS NOT NULL THEN l.credit ELSE 0 END),0) credit,COALESCE(SUM(CASE WHEN e.id IS NOT NULL THEN l.debit-l.credit ELSE 0 END),0) balance FROM accounting_accounts a LEFT JOIN accounting_entry_lines l ON l.account_code=a.code LEFT JOIN accounting_entries e ON e.id=l.entry_id AND e.status='posted' AND e.entry_date>=? AND e.entry_date<? WHERE a.active=1 GROUP BY a.code,a.name HAVING debit<>0 OR credit<>0 ORDER BY a.code''', [start.toIso8601String(), end.toIso8601String()]);
+    final startDate = start.toIso8601String();
+    final endDate = end.toIso8601String();
+    return _database.db.rawQuery('''
+      SELECT t.code, t.name, t.opening_balance, t.debit, t.credit,
+             t.opening_balance + t.debit - t.credit AS balance
+      FROM (
+        SELECT a.code, a.name,
+          COALESCE(SUM(CASE WHEN e.entry_date < ?
+            THEN l.debit - l.credit ELSE 0 END), 0) opening_balance,
+          COALESCE(SUM(CASE WHEN e.entry_date >= ? AND e.entry_date < ?
+            THEN l.debit ELSE 0 END), 0) debit,
+          COALESCE(SUM(CASE WHEN e.entry_date >= ? AND e.entry_date < ?
+            THEN l.credit ELSE 0 END), 0) credit
+        FROM accounting_accounts a
+        LEFT JOIN accounting_entry_lines l ON l.account_code = a.code
+        LEFT JOIN accounting_entries e
+          ON e.id = l.entry_id AND e.status = 'posted'
+        GROUP BY a.code, a.name
+      ) t
+      WHERE t.opening_balance <> 0 OR t.debit <> 0 OR t.credit <> 0
+      ORDER BY t.code
+    ''', [startDate, startDate, endDate, startDate, endDate]);
   }
 
-  Future<List<Map<String, Object?>>> generalLedger({required DateTime start, required DateTime end}) async {
-    final rows = await journal(start: start, end: end);
-    rows.sort((a, b) { final account = '${a['account_code']}'.compareTo('${b['account_code']}'); return account != 0 ? account : '${a['entry_date']}'.compareTo('${b['entry_date']}'); });
+  /// Grand-livre : inclut une ligne de report pour chaque compte disposant
+  /// d'un historique antérieur, même sans mouvement dans la période choisie.
+  Future<List<Map<String, Object?>>> generalLedger({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final periodRows = await journal(start: start, end: end);
+    final openingRows = await _database.db.rawQuery('''
+      SELECT l.account_code, a.name account_name,
+             SUM(l.debit - l.credit) opening_balance
+      FROM accounting_entry_lines l
+      JOIN accounting_entries e ON e.id = l.entry_id
+      JOIN accounting_accounts a ON a.code = l.account_code
+      WHERE e.status = 'posted' AND e.entry_date < ?
+      GROUP BY l.account_code, a.name
+      HAVING SUM(l.debit - l.credit) <> 0
+    ''', [start.toIso8601String()]);
+
+    final entries = <Map<String, Object?>>[...periodRows];
+    for (final opening in openingRows) {
+      entries.add({
+        'account_code': opening['account_code'],
+        'account_name': opening['account_name'],
+        'entry_date': start.toIso8601String(),
+        'journal_code': 'AN',
+        'reference': 'REPORT',
+        'description': 'Solde antérieur à la période',
+        'source_type': 'opening_balance',
+        'debit': 0,
+        'credit': 0,
+        'opening_balance': opening['opening_balance'],
+      });
+    }
+    entries.sort((a, b) {
+      final account = '${a['account_code']}'.compareTo('${b['account_code']}');
+      if (account != 0) return account;
+      final firstIsOpening = a['source_type'] == 'opening_balance';
+      final secondIsOpening = b['source_type'] == 'opening_balance';
+      if (firstIsOpening != secondIsOpening) return firstIsOpening ? -1 : 1;
+      return '${a['entry_date']}'.compareTo('${b['entry_date']}');
+    });
+
     final balances = <String, int>{};
-    return rows.map((row) { final code = '${row['account_code']}'; final next = (balances[code] ?? 0) + ((row['debit'] as num).toInt()) - ((row['credit'] as num).toInt()); balances[code] = next; return {...row, 'balance': next}; }).toList();
+    return entries.map((entry) {
+      final code = '${entry['account_code']}';
+      final opening = (entry['opening_balance'] as num?)?.toInt() ?? 0;
+      final debit = (entry['debit'] as num).toInt();
+      final credit = (entry['credit'] as num).toInt();
+      final next = (balances[code] ?? 0) + opening + debit - credit;
+      balances[code] = next;
+      return {...entry, 'balance': next};
+    }).toList();
   }
 
   Future<void> createManualEntry({
