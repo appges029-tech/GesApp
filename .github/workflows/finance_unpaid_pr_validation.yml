@@ -10,6 +10,8 @@ on:
       - 'lib/data/repositories/report_repository.dart'
       - 'lib/services/report_pdf_service.dart'
       - 'lib/services/billing_pdf_service.dart'
+      - 'lib/services/payment_notice_batch_pdf_service.dart'
+      - 'test/payment_notice_batch_pdf_service_test.dart'
       - 'lib/services/bilan_financier_pdf_service.dart'
       - 'lib/services/document_identity.dart'
       - 'lib/services/unpaid_report_presenter.dart'
@@ -46,6 +48,6 @@ jobs:
       - name: Static analysis
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - name: Test finance workflows and PDF data
-        run: flutter test test/finance_repository_test.dart test/unpaid_report_presenter_test.dart test/payment_notice_batch_pdf_service_test.dart test/receipt_service_test.dart test/finance_pdf_document_test.dart test/report_repository_ledger_test.dart test/accounting_period_reports_test.dart test/accounting_reversal_test.dart
+        run: flutter test test/finance_repository_test.dart test/unpaid_report_presenter_test.dart test/payment_notice_batch_pdf_service_test.dart test/receipt_service_test.dart test/finance_pdf_document_test.dart test/report_repository_ledger_test.dart test/accounting_period_reports_test.dart test/accounting_reversal_test.dart test/payment_notice_batch_pdf_service_test.dart
       - name: Build production web
         run: flutter build web --release --base-href /GesApp_2.2.2_AUDIT100_FIXED/
