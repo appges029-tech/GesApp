@@ -65,6 +65,9 @@ class ReceiptData {
     required this.dateLabel,
     this.paymentReference = '',
     this.lines = const [],
+    this.refundedAmount = 0,
+    this.isCancelled = false,
+    this.cancelReason,
   });
 
   final DocumentIdentity identity;
@@ -76,6 +79,11 @@ class ReceiptData {
   final String dateLabel;
   final String paymentReference;
   final List<ReceiptLine> lines;
+  final int refundedAmount;
+  final bool isCancelled;
+  final String? cancelReason;
+
+  int get netAmount => amount - refundedAmount;
 }
 
 class ReceiptService {
@@ -94,13 +102,12 @@ class ReceiptService {
     return pdf.save();
   }
 
-  pw.Page _buildA5Page(ReceiptData data) => pw.Page(
+  pw.MultiPage _buildA5Page(ReceiptData data) => pw.MultiPage(
         pageFormat: PdfPageFormat.a5,
         margin: const pw.EdgeInsets.all(24),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            DocumentPdfChrome.header(data.identity),
+        header: (context) => DocumentPdfChrome.header(data.identity),
+        footer: (context) => DocumentPdfChrome.footer(context, data.identity, reference: data.receiptNumber),
+        build: (context) => [
             pw.SizedBox(height: 12),
             pw.Container(
               width: double.infinity,
@@ -138,20 +145,27 @@ class ReceiptService {
               decoration: pw.BoxDecoration(color: PdfColors.grey200, borderRadius: pw.BorderRadius.circular(4)),
               child: pw.Text('TOTAL REÇU : ${data.amount} ${data.currency}', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
             ),
+            if (data.refundedAmount > 0) ...[
+              pw.SizedBox(height: 8),
+              pw.Text('MONTANT REMBOURSÉ : ${data.refundedAmount} ${data.currency}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.Text('MONTANT NET CONSERVÉ : ${data.netAmount} ${data.currency}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            ],
+            if (data.isCancelled) ...[
+              pw.SizedBox(height: 8),
+              pw.Text('PAIEMENT ANNULÉ — REÇU NON VALABLE', style: pw.TextStyle(color: PdfColors.red800, fontWeight: pw.FontWeight.bold)),
+              if (data.cancelReason?.trim().isNotEmpty == true) pw.Text('Motif : ${data.cancelReason}'),
+            ],
             pw.SizedBox(height: 8),
             pw.Text('Authenticité : vérifiez ce document dans GesApp avec le numéro ${data.receiptNumber}.', style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
-            pw.Spacer(),
             pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
               pw.Text(data.identity.generatedBy.trim().isEmpty ? 'Gestionnaire' : data.identity.generatedBy),
               pw.Column(children: [pw.SizedBox(height: 28), pw.Container(width: 110, height: 1, color: PdfColors.grey700), pw.SizedBox(height: 3), pw.Text('Signature / cachet')]),
             ]),
             pw.SizedBox(height: 8),
-            DocumentPdfChrome.footer(context, data.identity, reference: data.receiptNumber),
-          ],
-        ),
+        ],
       );
 
-  pw.Page _buildPosPage(
+  pw.MultiPage _buildPosPage(
     ReceiptData data, {
     required ReceiptFormat format,
     required bool showLogo,
@@ -183,7 +197,7 @@ class ReceiptService {
           ),
         );
 
-    return pw.Page(
+    return pw.MultiPage(
       pageFormat: pageFormat,
       margin: pw.EdgeInsets.fromLTRB(
         horizontal * PdfPageFormat.mm,
@@ -191,9 +205,7 @@ class ReceiptService {
         horizontal * PdfPageFormat.mm,
         4 * PdfPageFormat.mm,
       ),
-      build: (_) => pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        children: [
+      build: (_) => [
           if (logo != null) ...[
             pw.Center(child: pw.Container(width: format == ReceiptFormat.pos80 ? 30 : 23, height: format == ReceiptFormat.pos80 ? 30 : 23, child: pw.Image(logo, fit: pw.BoxFit.contain))),
             pw.SizedBox(height: 3),
@@ -228,16 +240,23 @@ class ReceiptService {
               ),
           ],
           rule(top: 4, bottom: 4),
-          pw.Text('TOTAL : ${_amount(data.amount, data.currency)}', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: title + 1, fontWeight: pw.FontWeight.bold)),
+          pw.Center(child: pw.Text('TOTAL ENCAISSÉ : ${_amount(data.amount, data.currency)}', style: pw.TextStyle(fontSize: title + 1, fontWeight: pw.FontWeight.bold))),
+          if (data.refundedAmount > 0) ...[
+            row('Remboursé', _amount(data.refundedAmount, data.currency), strong: true),
+            row('Net conservé', _amount(data.netAmount, data.currency), strong: true),
+          ],
+          if (data.isCancelled) ...[
+            pw.Center(child: pw.Text('ANNULÉ - NON VALABLE', style: pw.TextStyle(fontSize: title, color: PdfColors.red800, fontWeight: pw.FontWeight.bold))),
+            if (data.cancelReason?.trim().isNotEmpty == true) row('Motif', data.cancelReason!),
+          ],
           rule(top: 4, bottom: 4),
           if (data.identity.generatedBy.trim().isNotEmpty) pw.Text('Caissier : ${data.identity.generatedBy.trim()}', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: small)),
           pw.SizedBox(height: 4),
           pw.Text('Authenticité : ${data.receiptNumber}', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: small, fontWeight: pw.FontWeight.bold)),
           pw.Text('Vérifiable dans GesApp', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: small, color: PdfColors.grey700)),
           pw.SizedBox(height: 5),
-          pw.Text('Merci.', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: normal, fontWeight: pw.FontWeight.bold)),
+          pw.Center(child: pw.Text('Merci.', style: pw.TextStyle(fontSize: normal, fontWeight: pw.FontWeight.bold))),
         ],
-      ),
     );
   }
 
