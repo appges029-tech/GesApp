@@ -9,6 +9,8 @@ import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
 import 'payment_amount_policy.dart';
+import 'cash_opening_required_dialog.dart';
+import 'cash_screen.dart';
 import '../../services/receipt_printer.dart';
 import '../../services/receipt_printing_preferences.dart';
 import '../../services/receipt_service.dart';
@@ -46,6 +48,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   List<DueItem> _payerDues = const [];
   final Set<String> _selectedDues = {};
   bool _saving = false;
+  bool _checkingCash = false;
   final String _operationId = const Uuid().v4();
   String? _committedReceipt;
   bool _loadingBalance = false;
@@ -267,8 +270,62 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     }
   }
 
+  /// Contrôle l'ouverture avant confirmation. Le dépôt financier vérifie
+  /// également la caisse dans sa transaction ; ce contrôle est uniquement UX.
+  Future<bool> _checkCashBeforePayment() async {
+    final accountId = _cashAccountId;
+    if (_methodAccountType != 'cash' || accountId == null) return true;
+
+    try {
+      final session = await ref.read(cashRepositoryProvider).openSession(accountId);
+      if (!mounted) return false;
+      if (session != null) return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Vérification de la caisse impossible : ${FriendlyError.message(error)}'),
+        ));
+      }
+      return false;
+    }
+
+    final accountName = _cashAccounts
+        .where((account) => account['id'] == accountId)
+        .map((account) => account['name'] as String? ?? 'Caisse physique')
+        .firstOrNull ?? 'Caisse physique';
+    if (!mounted) return false;
+    final openCash = await showCashOpeningRequiredDialog(
+      context,
+      accountName: accountName,
+    );
+    if (!mounted || !openCash) return false;
+
+    // Conserver le formulaire rempli en ouvrant la bonne caisse.
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => CashScreen(initialAccountId: accountId),
+    ));
+    if (!mounted) return false;
+    try {
+      final session = await ref.read(cashRepositoryProvider).openSession(accountId);
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(session == null
+            ? 'La caisse est toujours fermée. Ouvrez-la avant d’encaisser.'
+            : 'Caisse ouverte. Vous pouvez maintenant valider le paiement.'),
+      ));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Vérification de la caisse impossible : ${FriendlyError.message(error)}'),
+        ));
+      }
+    }
+    // Une nouvelle validation explicite évite les encaissements involontaires.
+    return false;
+  }
+
   Future<void> _save() async {
-    if (_saving || _committedReceipt != null) {
+    if (_saving || _checkingCash || _committedReceipt != null) {
       if (_committedReceipt != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Paiement déjà enregistré : reçu ' + _committedReceipt!),
@@ -290,6 +347,12 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         content: Text('Saisissez un montant positif qui ne dépasse pas les périodes sélectionnées.')));
       return;
     }
+
+    setState(() => _checkingCash = true);
+    final cashIsReady = await _checkCashBeforePayment();
+    if (!mounted) return;
+    setState(() => _checkingCash = false);
+    if (!cashIsReady) return;
 
     // Resolve the beneficiary BEFORE writing money. A failed lookup cannot
     // make an already-posted payment appear unsuccessful.
@@ -860,9 +923,9 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             const SizedBox(height: 22),
             if (!desktopForm)
               FilledButton.icon(
-                onPressed: _saving || _loadingBalance || _selectedDues.isEmpty ? null : _save,
+                onPressed: _saving || _checkingCash || _loadingBalance || _selectedDues.isEmpty ? null : _save,
                 icon: const Icon(Icons.check_circle_outline),
-                label: Text(_saving ? 'Enregistrement…' : 'Valider le paiement'),
+                label: Text(_checkingCash ? 'Vérification de la caisse…' : (_saving ? 'Enregistrement…' : 'Valider le paiement')),
               ),
         ];
         if (!desktopForm) {
@@ -911,11 +974,11 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                           ]),
                           const SizedBox(height: 10),
                           FilledButton.icon(
-                            onPressed: _saving || _loadingBalance ||
+                            onPressed: _saving || _checkingCash || _loadingBalance ||
                                     _selectedDues.isEmpty ? null : _save,
                             icon: const Icon(Icons.check_circle_outline),
-                            label: Text(_saving
-                                ? 'Enregistrement…' : 'Valider le paiement'),
+                            label: Text(_checkingCash ? 'Vérification de la caisse…'
+                                : (_saving ? 'Enregistrement…' : 'Valider le paiement')),
                           ),
                         ],
                       ),

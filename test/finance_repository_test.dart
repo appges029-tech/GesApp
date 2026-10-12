@@ -361,6 +361,50 @@ void main() {
     );
   });
 
+  test('caisse fermée : paiement refusé sans écriture, puis accepté après ouverture', () async {
+    final target = await createClass('CaisseControle');
+    await students.add(firstName: 'Marie', lastName: 'Caisse',
+      classroomId: target.$2);
+    final student = (await students.list()).single;
+    await finance.createFeeWithTariff(
+      name: 'Scolarité contrôlée', periodicity: 'mensuelle',
+      amount: 15000, cycleId: target.$1,
+      validFrom: DateTime(2026, 10, 1),
+    );
+    final due = (await finance.dues()).firstWhere(
+      (item) => item.periodKey == '2026-10',
+    );
+
+    expect(await cash.openSession('main_cash'), isNull);
+    await expectLater(
+      finance.recordPayment(
+        studentId: student.id,
+        amount: 5000,
+        method: 'Espèces',
+        cashAccountId: 'main_cash',
+        dueIds: [due.id],
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(await finance.recentPayments(), isEmpty);
+    expect((await finance.dues()).firstWhere(
+      (item) => item.id == due.id).amountPaid, 0);
+
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    expect(await cash.openSession('main_cash'), isNotNull);
+    final receipt = await finance.recordPayment(
+      studentId: student.id,
+      amount: 5000,
+      method: 'Espèces',
+      cashAccountId: 'main_cash',
+      dueIds: [due.id],
+    );
+    expect((await finance.recentPayments()).single.receiptNumber, receipt);
+    expect(await finance.paymentReceiptLines(receipt), hasLength(1));
+    expect((await finance.dues()).firstWhere(
+      (item) => item.id == due.id).amountPaid, 5000);
+  });
+
   test('réessayer le même encaissement ne crée ni doublon ni nouvelle allocation', () async {
     final target = await createClass('Idem');
     await students.add(firstName: 'Alice', lastName: 'Validation',

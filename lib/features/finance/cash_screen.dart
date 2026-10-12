@@ -7,7 +7,10 @@ import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 
 class CashScreen extends ConsumerStatefulWidget {
-  const CashScreen({super.key});
+  const CashScreen({super.key, this.initialAccountId});
+
+  /// Caisse à présélectionner depuis un encaissement.
+  final String? initialAccountId;
 
   @override
   ConsumerState<CashScreen> createState() => _CashScreenState();
@@ -25,6 +28,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   @override
   void initState() {
     super.initState();
+    _account = widget.initialAccountId;
     _load();
   }
 
@@ -40,7 +44,10 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   Future<void> _load() async {
     final repo = ref.read(cashRepositoryProvider);
     final accounts = await repo.accounts();
-    final selected = _account ?? (accounts.isEmpty ? null : accounts.first['id'] as String?);
+    final preferred = _account;
+    final selected = accounts.any((account) => account['id'] == preferred)
+        ? preferred
+        : (accounts.isEmpty ? null : accounts.first['id'] as String?);
     final selectedRow = accounts.where((a) => a['id'] == selected).firstOrNull;
     final session = selected != null && selectedRow?['type'] == 'cash'
         ? await repo.openSession(selected)
