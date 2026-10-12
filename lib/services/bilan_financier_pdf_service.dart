@@ -169,7 +169,7 @@ class BilanFinancierPdfService {
   pw.Widget _kpiGrid(FinancialReportSummary s) {
     final cards = [
       _kpiCard('Attendu', formatXaf(s.expected), PdfColors.blueGrey700),
-      _kpiCard('Encaissé', formatXaf(s.allocated), _revenueColor),
+      _kpiCard('Imputé aux échéances', formatXaf(s.allocated), _revenueColor),
       _kpiCard('Reste à recouvrer', formatXaf(s.outstanding), PdfColors.orange800),
       _kpiCard('Taux de recouvrement', '${(s.recoveryRate * 100).toStringAsFixed(1)} %', _balanceColor),
       _kpiCard('Recettes encaissées', formatXaf(s.revenue), _revenueColor),
