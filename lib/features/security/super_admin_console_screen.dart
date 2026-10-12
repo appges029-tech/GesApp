@@ -6,6 +6,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../../services/super_admin_service.dart';
 import 'super_admin_school_detail_screen.dart';
 import 'super_admin_history_screen.dart';
+import 'super_admin_console_filters.dart';
 
 class SuperAdminConsoleScreen extends StatefulWidget {
   const SuperAdminConsoleScreen({super.key});
@@ -199,24 +200,11 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
   Widget _dashboard() {
     final totals = _map(_data!['totals']);
     final allSchools = _list(_data!['organizations']);
-    final search = _schoolQuery.text.trim().toLowerCase();
-    final schools = allSchools.where((school) {
-      final admin = _map(school['admin']);
-      final managers = _list(school['managers']);
-      final text = [school['name'], school['code'], admin['display_name'],
-        ...managers.map((manager) => manager['display_name'])]
-          .map((value) => (value ?? '').toString().toLowerCase()).join(' ');
-      return (search.isEmpty || text.contains(search)) &&
-        (_schoolStatus == 'all' || school['subscription_effective_status'] == _schoolStatus);
-    }).toList(growable: false);
+    final schools = SuperAdminConsoleFilters.schools(
+      allSchools, search: _schoolQuery.text, status: _schoolStatus);
     final requests = _list(_data!['pending_requests']);
-    final activitySearch = _activityQuery.text.trim().toLowerCase();
-    final events = _list(_data!['recent_activity']).where((event) {
-      final text = [event['organization_name'], event['module'],
-        event['event_type'], event['message']]
-          .map((value) => (value ?? '').toString().toLowerCase()).join(' ');
-      return activitySearch.isEmpty || text.contains(activitySearch);
-    }).toList(growable: false);
+    final events = SuperAdminConsoleFilters.activities(
+      _list(_data!['recent_activity']), search: _activityQuery.text);
 
     return Scaffold(
       appBar: AppBar(
