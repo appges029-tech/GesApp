@@ -695,10 +695,16 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
 }
 
 class _SchoolCard extends StatefulWidget {
-  const _SchoolCard({required this.school, required this.onToggle, required this.onRenew});
+  const _SchoolCard({
+    required this.school,
+    required this.onToggle,
+    required this.onRenew,
+    required this.onDetails,
+  });
   final Map<String, dynamic> school;
   final Future<void> Function(bool active) onToggle;
-  final Future<void> Function(String cycle) onRenew;
+  final Future<void> Function(String cycle, String reference) onRenew;
+  final VoidCallback onDetails;
 
   @override
   State<_SchoolCard> createState() => _SchoolCardState();
@@ -792,6 +798,21 @@ class _SchoolCardState extends State<_SchoolCard> {
               'Dernière synchro : ' + _date(sync['updated_at']),
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (_asMap(school['latest_sync_event'])['event_type'] == 'sync_error')
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.warning_amber_outlined),
+                title: Text('Dernier incident de synchronisation connu'),
+                subtitle: Text('Consultez la fiche pour le détail.'),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: widget.onDetails,
+                icon: const Icon(Icons.open_in_new_outlined),
+                label: const Text('Voir la fiche complète'),
+              ),
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 12,
@@ -809,30 +830,54 @@ class _SchoolCardState extends State<_SchoolCard> {
                 ),
                 FilledButton.icon(
                   onPressed: _busy ? null : () async {
+                    final reference = TextEditingController();
                     final confirmed = await showDialog<bool>(
                       context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Confirmer le paiement ?'),
-                        content: const Text(
-                          'Cette action enregistrera un paiement validé et '
-                          'activera ou prolongera l’abonnement. '
-                          'Ne confirmez que lorsque le paiement est reçu.',
+                      builder: (dialogContext) => StatefulBuilder(
+                        builder: (dialogContext, update) => AlertDialog(
+                          title: const Text('Confirmer le renouvellement ?'),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Vérifiez la réception du paiement. '
+                                'Ce renouvellement prolongera l’accès de cette école.'),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: reference,
+                                onChanged: (_) => update(() {}),
+                                decoration: const InputDecoration(
+                                  labelText: 'Référence du paiement / justificatif *',
+                                  hintText: 'Ex. CAISSE-001 ou VIRT-2026-001',
+                                ),
+                              ),
+                            ],
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Annuler'),
+                            ),
+                            FilledButton(
+                              onPressed: reference.text.trim().length >= 3
+                                  ? () => Navigator.pop(dialogContext, true) : null,
+                              child: const Text('Paiement confirmé'),
+                            ),
+                          ],
                         ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context, false),
-                              child: const Text('Annuler')),
-                          FilledButton(onPressed: () => Navigator.pop(context, true),
-                              child: const Text('Paiement reçu')),
-                        ],
                       ),
                     );
+                    final paymentReference = reference.text.trim();
+                    reference.dispose();
                     if (confirmed != true || !mounted) return;
                     setState(() => _busy = true);
                     try {
-                      await widget.onRenew(_cycle);
+                      await widget.onRenew(_cycle, paymentReference);
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Abonnement renouvelé et référencé.')));
                     } catch (e) {
                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(e.toString())));
+                        SnackBar(content: Text('Renouvellement refusé : $e')));
                     } finally {
                       if (mounted) setState(() => _busy = false);
                     }
