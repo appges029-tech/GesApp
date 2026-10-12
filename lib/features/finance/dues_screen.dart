@@ -130,15 +130,18 @@ class _DuesScreenState extends ConsumerState<DuesScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          SegmentedButton<_DueView>(
-            showSelectedIcon: false,
-            multiSelectionEnabled: false,
-            selected: {_view},
-            onSelectionChanged: (selected) => setState(() => _view = selected.first),
-            segments: [
-              for (final view in _DueView.values)
-                ButtonSegment(value: view, label: Text(_label(view))),
-            ],
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<_DueView>(
+              showSelectedIcon: false,
+              multiSelectionEnabled: false,
+              selected: {_view},
+              onSelectionChanged: (selected) => setState(() => _view = selected.first),
+              segments: [
+                for (final view in _DueView.values)
+                  ButtonSegment(value: view, label: Text(_label(view))),
+              ],
+            ),
           ),
         ]),
       )),
