@@ -73,7 +73,22 @@ List<StudentNoticeData> groupDuesByStudent(List<Map<String, Object?>> rows) {
   return list;
 }
 
+
+class _NoticeSlice {
+  const _NoticeSlice(this.student, this.from, this.to);
+  final StudentNoticeData student;
+  final int from, to;
+  bool get continued => from > 0;
+  bool get hasMore => to < student.lines.length;
+}
+
+/// Deux appels lisibles par feuille A4. Les nombreux frais sont répartis sur
+/// des pages dédiées, jamais tronqués par la mise en page.
 class PaymentNoticeBatchPdfService {
+  static const int regularPerPage = 2;
+  static const int compactLineLimit = 4;
+  static const int extendedLineLimit = 10;
+
   Future<Uint8List> build({
     required List<StudentNoticeData> students,
     required String periodLabel,
@@ -89,65 +104,84 @@ class PaymentNoticeBatchPdfService {
     Uint8List? logoBytes,
   }) async {
     final pdf = pw.Document();
-    final logo = (logoBytes != null && logoBytes.isNotEmpty) ? pw.MemoryImage(logoBytes) : null;
-    const perPage = 8;
-    for (var i = 0; i < students.length; i += perPage) {
-      final pageStudents = students.skip(i).take(perPage).toList();
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(10),
-          build: (_) => pw.Column(
-            children: List.generate(4, (row) => [
-              _cellRow([
-                pageStudents.length > row * 2 ? pageStudents[row * 2] : null,
-                pageStudents.length > row * 2 + 1 ? pageStudents[row * 2 + 1] : null,
-              ], establishmentName, establishmentAddress, establishmentPhone, establishmentEmail, approvalNumber, schoolYearLabel, batchReference, cycleLabel, classroomLabel, periodLabel, logo),
-              if (row < 3) pw.SizedBox(height: 4),
-            ]).expand((widgets) => widgets).toList(),
+    final logo = (logoBytes == null || logoBytes.isEmpty)
+        ? null : pw.MemoryImage(logoBytes);
+    final pages = <List<_NoticeSlice>>[];
+    var paired = <_NoticeSlice>[];
+    void flushPair() {
+      if (paired.isEmpty) return;
+      pages.add(paired);
+      paired = <_NoticeSlice>[];
+    }
+    for (final student in students.where((s) => s.totalBalance > 0)) {
+      final count = student.lines.length;
+      if (count <= compactLineLimit) {
+        paired.add(_NoticeSlice(student, 0, count));
+        if (paired.length == regularPerPage) flushPair();
+      } else {
+        flushPair();
+        for (var from = 0; from < count; from += extendedLineLimit) {
+          final to = (from + extendedLineLimit < count)
+              ? from + extendedLineLimit : count;
+          pages.add([_NoticeSlice(student, from, to)]);
+        }
+      }
+    }
+    flushPair();
+
+    for (var index = 0; index < pages.length; index++) {
+      final notices = pages[index];
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(24, 22, 24, 22),
+        build: (_) => pw.Column(children: [
+          for (var position = 0; position < notices.length; position++) ...[
+            pw.Expanded(child: _notice(
+              notices[position], periodLabel: periodLabel,
+              establishmentName: establishmentName,
+              establishmentAddress: establishmentAddress,
+              establishmentPhone: establishmentPhone,
+              establishmentEmail: establishmentEmail,
+              approvalNumber: approvalNumber,
+              schoolYearLabel: schoolYearLabel,
+              batchReference: batchReference,
+              cycleLabel: cycleLabel,
+              classroomLabel: classroomLabel,
+              logo: logo,
+            )),
+            if (position + 1 < notices.length) pw.SizedBox(height: 14),
+          ],
+          pw.SizedBox(height: 5),
+          pw.Text(
+            'Lot ${batchReference ?? '—'} · Page ${index + 1}/${pages.length} '
+            '· Document à remettre au responsable légal',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
           ),
-        ),
-      );
+        ]),
+      ));
     }
     return pdf.save();
   }
 
-  pw.Widget _cellRow(
-    List<StudentNoticeData?> pair,
-    String? establishmentName,
-    String? establishmentAddress,
-    String? establishmentPhone,
-    String? establishmentEmail,
-    String? approvalNumber,
-    String? schoolYearLabel,
-    String? batchReference,
-    String? cycleLabel,
-    String? classroomLabel,
-    String periodLabel,
-    pw.MemoryImage? logo,
-  ) {
-    return pw.Expanded(
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Expanded(
-            child: pair[0] == null
-                ? pw.Container()
-                : _noticeCell(pair[0]!, establishmentName, establishmentAddress, establishmentPhone, establishmentEmail, approvalNumber, schoolYearLabel, batchReference, cycleLabel, classroomLabel, periodLabel, logo),
-          ),
-          pw.SizedBox(width: 4),
-          pw.Expanded(
-            child: pair[1] == null
-                ? pw.Container()
-                : _noticeCell(pair[1]!, establishmentName, establishmentAddress, establishmentPhone, establishmentEmail, approvalNumber, schoolYearLabel, batchReference, cycleLabel, classroomLabel, periodLabel, logo),
-          ),
-        ],
-      ),
-    );
+  String _amount(int value) {
+    final original = value.abs().toString();
+    final parts = <String>[];
+    for (var end = original.length; end > 0; end -= 3) {
+      final start = end - 3 < 0 ? 0 : end - 3;
+      parts.insert(0, original.substring(start, end));
+    }
+    return "${value < 0 ? '-' : ''}${parts.join(' ')} FCFA";
   }
 
-  pw.Widget _noticeCell(
-    StudentNoticeData s,
+  String _date(String? value) {
+    if (value == null || value.isEmpty) return 'Non renseignée';
+    final date = value.split('-');
+    return date.length == 3 ? '${date[2]}/${date[1]}/${date[0]}' : value;
+  }
+
+  pw.Widget _notice(
+    _NoticeSlice slice, {
+    required String periodLabel,
     String? establishmentName,
     String? establishmentAddress,
     String? establishmentPhone,
@@ -157,66 +191,127 @@ class PaymentNoticeBatchPdfService {
     String? batchReference,
     String? cycleLabel,
     String? classroomLabel,
-    String periodLabel,
     pw.MemoryImage? logo,
-  ) {
-    String fmt(int v) => '$v FCFA';
-    String displayDate(String? value) {
-      if (value == null || value.isEmpty) return 'Non renseignée';
-      final parts = value.split('-');
-      return parts.length == 3 ? '${parts[2]}/${parts[1]}/${parts[0]}' : value;
-    }
-    final fees = s.lines.map((line) => line.fee).where((name) => name.isNotEmpty).toSet().join(', ');
+  }) {
+    final s = slice.student;
+    final items = s.lines.sublist(slice.from, slice.to);
+    final noticeReference = '${batchReference ?? 'APP'} / ${s.registrationNumber}';
     return pw.Container(
-      padding: const pw.EdgeInsets.all(4),
-      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.7, color: PdfColors.grey700)),
+      padding: const pw.EdgeInsets.all(14),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.blueGrey600, width: 0.8),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
+      ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              if (logo != null) ...[
-                pw.Container(width: 18, height: 18, child: pw.Image(logo, fit: pw.BoxFit.contain)),
-                pw.SizedBox(width: 4),
-              ],
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      (establishmentName == null || establishmentName.isEmpty) ? 'Établissement scolaire' : establishmentName,
-                      style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold),
-                    ),
-                    if ((establishmentPhone ?? '').isNotEmpty) pw.Text('Tél. $establishmentPhone', style: const pw.TextStyle(fontSize: 5.5)),
-                    if ((establishmentEmail ?? '').isNotEmpty) pw.Text(establishmentEmail!, style: const pw.TextStyle(fontSize: 5.2)),
-                    if ((approvalNumber ?? '').isNotEmpty) pw.Text('Agrément : $approvalNumber', style: const pw.TextStyle(fontSize: 5.2)),
-                  ],
-                ),
-              ),
+          pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
+            if (logo != null) ...[
+              pw.SizedBox(width: 38, height: 38,
+                  child: pw.Image(logo, fit: pw.BoxFit.contain)),
+              pw.SizedBox(width: 10),
             ],
+            pw.Expanded(child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  (establishmentName ?? '').trim().isEmpty
+                      ? 'Établissement scolaire' : establishmentName!,
+                  style: pw.TextStyle(fontSize: 12,
+                      fontWeight: pw.FontWeight.bold),
+                ),
+                if ((establishmentAddress ?? '').isNotEmpty)
+                  pw.Text(establishmentAddress!,
+                      style: const pw.TextStyle(fontSize: 8.5)),
+                if ((establishmentPhone ?? '').isNotEmpty ||
+                    (establishmentEmail ?? '').isNotEmpty)
+                  pw.Text([
+                    if ((establishmentPhone ?? '').isNotEmpty)
+                      'Tél. $establishmentPhone',
+                    if ((establishmentEmail ?? '').isNotEmpty)
+                      establishmentEmail!,
+                  ].join(' · '), style: const pw.TextStyle(fontSize: 8.5)),
+                if ((approvalNumber ?? '').isNotEmpty)
+                  pw.Text('Agrément : $approvalNumber',
+                      style: const pw.TextStyle(fontSize: 8)),
+              ],
+            )),
+          ]),
+          pw.SizedBox(height: 6),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 5),
+            decoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+            child: pw.Text(
+              slice.continued ? 'APPEL À PAIEMENT — SUITE' : 'APPEL À PAIEMENT',
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(color: PdfColors.white, fontSize: 13,
+                  fontWeight: pw.FontWeight.bold),
+            ),
           ),
-          pw.SizedBox(height: 2),
-          pw.Center(
-            child: pw.Text('APPEL À PAIEMENT', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 7),
+          pw.Text('Période : $periodLabel · Année : ${schoolYearLabel ?? '—'}',
+              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+          pw.Text('Élève : ${s.studentName} · Matricule : ${s.registrationNumber}',
+              style: pw.TextStyle(fontSize: 9.5,
+                  fontWeight: pw.FontWeight.bold)),
+          pw.Text('Classe : ${cycleLabel ?? s.cycle} / ${classroomLabel ?? s.classroom}',
+              style: const pw.TextStyle(fontSize: 9)),
+          if (s.guardianName.isNotEmpty)
+            pw.Text('Parent / tuteur : ${s.guardianName}',
+                style: const pw.TextStyle(fontSize: 9)),
+          pw.SizedBox(height: 8),
+          pw.TableHelper.fromTextArray(
+            headers: const ['Rubrique', 'Dû', 'Payé', 'Reste'],
+            data: [
+              for (final item in items) [
+                item.fee, _amount(item.amountDue),
+                _amount(item.amountPaid),
+                _amount(item.amountDue - item.amountPaid),
+              ],
+            ],
+            columnWidths: {
+              0: const pw.FlexColumnWidth(2.3),
+              1: const pw.FlexColumnWidth(1.1),
+              2: const pw.FlexColumnWidth(1.1),
+              3: const pw.FlexColumnWidth(1.1),
+            },
+            headerStyle: pw.TextStyle(fontSize: 9,
+                fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+            headerDecoration:
+                const pw.BoxDecoration(color: PdfColors.blueGrey700),
+            cellStyle: const pw.TextStyle(fontSize: 8.5),
+            cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 5, vertical: 5),
+            border: pw.TableBorder.all(
+                color: PdfColors.grey400, width: 0.4),
           ),
-          pw.Text('Période : $periodLabel${(schoolYearLabel ?? '').isEmpty ? '' : ' · $schoolYearLabel'}', style: const pw.TextStyle(fontSize: 5.8)),
-          pw.Divider(height: 4, thickness: 0.4),
-          pw.Text('À l’attention du parent / tuteur de :', style: const pw.TextStyle(fontSize: 5.8)),
-          pw.Text(s.studentName, style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold)),
-          pw.Text('${s.registrationNumber} · ${cycleLabel ?? s.cycle} / ${classroomLabel ?? s.classroom}', style: const pw.TextStyle(fontSize: 5.8)),
-          if (s.guardianName.isNotEmpty) pw.Text('Parent / tuteur : ${s.guardianName}', style: const pw.TextStyle(fontSize: 5.8)),
-          pw.SizedBox(height: 2),
-          pw.Text('Frais concernés : ${fees.isEmpty ? 'Frais scolaires' : fees}', maxLines: 2, style: const pw.TextStyle(fontSize: 5.8)),
-          pw.Text(
-            'MONTANT À PAYER : ${fmt(s.totalBalance)}',
-            style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold),
+          pw.SizedBox(height: 7),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(8),
+            decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+            child: pw.Row(children: [
+              pw.Expanded(child: pw.Text('TOTAL RESTANT À RÉGLER',
+                  style: pw.TextStyle(fontSize: 10,
+                      fontWeight: pw.FontWeight.bold))),
+              pw.Text(_amount(s.totalBalance), style: pw.TextStyle(
+                  fontSize: 12, fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.blueGrey900)),
+            ]),
           ),
-          pw.Text('DATE LIMITE DE PAIEMENT : ${displayDate(s.paymentDeadline)}', style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
-          pw.SizedBox(height: 2),
-          pw.Text('Cher parent / tuteur, nous vous prions de régler les frais indiqués au plus tard à cette date.', style: const pw.TextStyle(fontSize: 5.5)),
-          pw.Text('Document d’appel à paiement — ceci n’est pas un reçu de paiement.', style: pw.TextStyle(fontSize: 5.2, fontStyle: pw.FontStyle.italic)),
-          if ((batchReference ?? '').isNotEmpty) pw.Text('Réf. lot : $batchReference', style: const pw.TextStyle(fontSize: 4.8, color: PdfColors.grey700)),
+          pw.SizedBox(height: 6),
+          pw.Text('Date limite : ${_date(s.paymentDeadline)}',
+              style: pw.TextStyle(fontSize: 9.5,
+                  fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
+          if (slice.hasMore)
+            pw.Text('Autres rubriques sur la page suivante.',
+                style: const pw.TextStyle(fontSize: 8.5)),
+          pw.Spacer(),
+          pw.Divider(color: PdfColors.grey500, height: 6),
+          pw.Text('Réf. $noticeReference · Ceci est un appel à paiement, '
+              'pas un reçu de règlement.',
+              style: const pw.TextStyle(
+                  fontSize: 8, color: PdfColors.grey700)),
         ],
       ),
     );

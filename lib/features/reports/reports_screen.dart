@@ -12,13 +12,13 @@ import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
 import '../../data/repositories/report_repository.dart';
 import '../../services/bilan_financier_pdf_service.dart';
-import '../../services/billing_pdf_service.dart';
 import '../../services/unpaid_report_presenter.dart';
 import '../../services/document_identity.dart';
 import '../../services/document_number_service.dart';
 import '../../services/excel_export_service.dart';
 import '../../services/report_pdf_service.dart';
 import 'payment_notices_screen.dart';
+import 'billing_documents_screen.dart';
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -266,54 +266,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Future<void> _billing() async {
-    final dues = await ref.read(reportRepositoryProvider).billingDues(filter: _filter);
     if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: const Text('Avis d’échéance / factures')),
-          body: dues.isEmpty
-              ? const Center(child: Text('Aucune échéance pour ces filtres.'))
-              : ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: dues.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) {
-                    final due = dues[i];
-                    return Card(
-                      child: ListTile(
-                        title: Text('${due['student']} · ${due['fee']}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: Text('${due['registration_number']} · ${due['cycle']} / ${due['classroom']}\n${due['period_key']} · reste ${formatXaf(due['balance'] as int)}'),
-                        isThreeLine: true,
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (kind) => _printBilling(due['due_id'] as String, invoice: kind == 'invoice'),
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'notice', child: Text('Avis d’échéance PDF')),
-                            PopupMenuItem(value: 'invoice', child: Text('Facture détaillée PDF')),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _printBilling(String dueId, {required bool invoice}) async {
-    final data = await ref.read(reportRepositoryProvider).billingDetail(dueId);
-    final establishment = await ref.read(establishmentProvider.future);
-    final rawIdentity = await DocumentIdentity.fromEstablishment(establishment);
-    final yearLabel = data['school_year_label'] as String?;
-    final identity = yearLabel == null || yearLabel.isEmpty
-        ? rawIdentity : rawIdentity.forSchoolYear(yearLabel);
-    final registry = DocumentNumberService();
-    final reference = await registry.getOrCreate(type: invoice ? 'FAC' : 'ECH', entityId: dueId);
-    final bytes = await BillingPdfService().build(data: data, invoice: invoice, reference: reference, identity: identity);
-    await registry.recordFingerprint(reference: reference, bytes: bytes);
-    await outputPdf(bytes, fileName: '${invoice ? 'Facture' : 'Avis_echeance'}_$reference.pdf');
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BillingDocumentsScreen(filter: _filter),
+    ));
   }
 
   Future<void> _recovery() async {
