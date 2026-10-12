@@ -864,6 +864,16 @@ class FinanceRepository {
   /// Trace immuable des affectations d'origine, dans la même transaction que
   /// l'encaissement. Compatible avec le schéma SQLite historique.
   Future<void> _preserveOriginalAllocations(Transaction txn, String paymentId) async {
+    final archived = await txn.query('app_settings',
+        columns: ['key'], where: 'key = ?',
+        whereArgs: ['payment_allocations_original:$paymentId'], limit: 1);
+    if (archived.isNotEmpty) return;
+    // Ne pas prétendre reconstruire les affectations initiales lorsqu'une
+    // ancienne version a déjà supprimé des lignes à un remboursement précédent.
+    final earlierRefund = await txn.query('payment_refunds',
+        columns: ['id'], where: 'payment_id = ?',
+        whereArgs: [paymentId], limit: 1);
+    if (earlierRefund.isNotEmpty) return;
     final original = await txn.rawQuery('''
       SELECT d.student_id, s.last_name || ' ' || s.first_name AS student_name,
              f.name AS fee_name, d.period_key, pa.amount
