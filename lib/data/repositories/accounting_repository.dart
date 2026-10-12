@@ -75,16 +75,14 @@ class AccountingRepository {
         }
 
         final refunds = await txn.rawQuery('''
-          SELECT r.*,p.receipt_number,p.cash_account_id,p.credit_amount,ca.type account_type
+          SELECT r.*,p.receipt_number,p.amount original_payment_amount,p.cash_account_id,p.credit_amount,ca.type account_type
           FROM payment_refunds r JOIN payments p ON p.id=r.payment_id
           LEFT JOIN cash_accounts ca ON ca.id=COALESCE(r.cash_account_id,p.cash_account_id)
         ''');
         for (final row in refunds) {
           final amount = (row['amount'] as num).toInt();
           final originalCredit = (row['credit_amount'] as num?)?.toInt() ?? 0;
-          final payments = await txn.query('payments',
-              columns: ['amount'], where: 'id=?', whereArgs: [row['payment_id']], limit: 1);
-          final paymentAmount = (payments.single['amount'] as num).toInt();
+          final paymentAmount = (row['original_payment_amount'] as num).toInt();
           final fallback = paymentAmount > originalCredit ? receivable : revenue;
           final paymentCredit = await _originalPaymentCreditAccount(
             txn, '${row['payment_id']}',
