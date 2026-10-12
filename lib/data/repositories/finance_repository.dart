@@ -863,7 +863,7 @@ class FinanceRepository {
 
   /// Trace immuable des affectations d'origine, dans la même transaction que
   /// l'encaissement. Compatible avec le schéma SQLite historique.
-  Future<void> _preserveOriginalAllocations(Transaction txn, String paymentId) async {
+  Future<void> _preserveOriginalAllocations(Transaction txn, String paymentId, {bool snapshotBeneficiary = false}) async {
     final archived = await txn.query('app_settings',
         columns: ['key'], where: 'key = ?',
         whereArgs: ['payment_allocations_original:$paymentId'], limit: 1);
@@ -884,6 +884,22 @@ class FinanceRepository {
       WHERE pa.payment_id = ?
       ORDER BY d.period_key, d.due_date, d.created_at, d.id
     ''', [paymentId]);
+    if (snapshotBeneficiary) {
+      final payer = await txn.rawQuery('''
+        SELECT COALESCE(s.last_name || ' ' || s.first_name, fam.name, 'Famille') AS name
+        FROM payments p
+        LEFT JOIN students s ON s.id = p.student_id
+        LEFT JOIN families fam ON fam.id = p.family_id
+        WHERE p.id = ? LIMIT 1
+      ''', [paymentId]);
+      if (payer.isNotEmpty) {
+        await txn.insert('app_settings', {
+          'key': 'payment_beneficiary_original:$paymentId',
+          'value': payer.single['name'] as String,
+          'updated_at': DateTime.now().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    }
     await txn.insert('app_settings', {
       'key': 'payment_allocations_original:$paymentId',
       'value': jsonEncode(original),
@@ -1109,7 +1125,7 @@ class FinanceRepository {
       final credit = amount > selectedOutstanding ? amount-selectedOutstanding : 0;
       await txn.update('payments',{'credit_amount':credit},where:'id = ?',whereArgs:[id]);
       if(credit>0) await txn.insert('payer_credits',{'id':_uuid.v4(),'student_id':studentId,'amount':credit,'source_payment_id':id,'status':'available','created_at':now.toIso8601String()});
-      await _preserveOriginalAllocations(txn, id);
+      await _preserveOriginalAllocations(txn, id, snapshotBeneficiary: true);
       await txn.insert('audit_log', {
         'entity_type': 'payment',
         'entity_id': id,
@@ -1218,7 +1234,7 @@ class FinanceRepository {
       final credit=amount>selectedOutstanding?amount-selectedOutstanding:0;
       await txn.update('payments',{'credit_amount':credit},where:'id = ?',whereArgs:[id]);
       if(credit>0) await txn.insert('payer_credits',{'id':_uuid.v4(),'family_id':familyId,'amount':credit,'source_payment_id':id,'status':'available','created_at':now.toIso8601String()});
-      await _preserveOriginalAllocations(txn, id);
+      await _preserveOriginalAllocations(txn, id, snapshotBeneficiary: true);
       await txn.insert('audit_log', {
         'entity_type': 'payment',
         'entity_id': id,
@@ -1686,6 +1702,9 @@ class FinanceRepository {
 
     if (rows.isEmpty) return null;
     final row = rows.first;
+    final originalPayer = await _database.db.query('app_settings',
+        columns: ['value'], where: 'key = ?',
+        whereArgs: ['payment_beneficiary_original:${row['id']}'], limit: 1);
     final allocationRows = await paymentReceiptLines(row['receipt_number'] as String);
     final lines = allocationRows
         .map((r) => ReceiptVerificationLine(
@@ -1697,7 +1716,9 @@ class FinanceRepository {
     return ReceiptVerificationResult(
       paymentId: row['id'] as String,
       receiptNumber: row['receipt_number'] as String,
-      beneficiaryName: row['beneficiary_name'] as String,
+      beneficiaryName: originalPayer.isEmpty
+          ? row['beneficiary_name'] as String
+          : originalPayer.single['value'] as String,
       amount: row['amount'] as int,
       refundedAmount: (row['refunded_amount'] as int?) ?? 0,
       method: row['payment_method'] as String,
