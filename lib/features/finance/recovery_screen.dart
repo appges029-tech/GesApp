@@ -263,8 +263,9 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
           ),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : RefreshIndicator(
+                 ? const Center(child: CircularProgressIndicator())
+                 : _error != null ? Center(child: Text('Chargement impossible : $_error'))
+                 : RefreshIndicator(
                     onRefresh: _load,
                     child: _cases.isEmpty
                         ? ListView(children: const [SizedBox(height: 120), Center(child: Text('Aucun impayé en retard.'))])
