@@ -473,8 +473,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       final prefs = await ReceiptPrintingPreferencesStore().load();
       if (prefs.autoPrint && prefs.format.isPos) {
         await _printReceipt(
-          receiptNumber: receipt, beneficiaryName: beneficiary,
-          amount: requested, paidAt: DateTime.now(),
+          receiptNumber: receipt,
           format: prefs.format, directToPrinter: true, preferences: prefs,
         );
       }
@@ -501,9 +500,13 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
               child: const Text('Fermer')),
             OutlinedButton.icon(
               onPressed: () async {
-                await _printReceipt(receiptNumber: receipt,
-                  beneficiaryName: beneficiary, amount: requested,
-                  paidAt: DateTime.now(), format: ReceiptFormat.a5);
+                try {
+                  await _printReceipt(
+                    receiptNumber: receipt, format: ReceiptFormat.a5);
+                } catch (error) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Paiement enregistré ; reçu non produit : $error')));
+                }
               },
               icon: const Icon(Icons.description_outlined),
               label: const Text('Reçu A5'),
@@ -513,8 +516,6 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 try {
                   final prefs = await ReceiptPrintingPreferencesStore().load();
                   await _printReceipt(receiptNumber: receipt,
-                    beneficiaryName: beneficiary, amount: requested,
-                    paidAt: DateTime.now(),
                     format: prefs.format.isPos ? prefs.format : ReceiptFormat.pos80,
                     directToPrinter: true, preferences: prefs);
                 } catch (_) {
@@ -540,47 +541,27 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
 
   Future<void> _printReceipt({
     required String receiptNumber,
-    required String beneficiaryName,
-    required int amount,
-    required DateTime paidAt,
     ReceiptFormat format = ReceiptFormat.a5,
     bool directToPrinter = false,
     ReceiptPrintingPreferences? preferences,
   }) async {
+    // Toujours relire l'écriture comptable validée : un changement d'état de
+    // formulaire ne peut plus modifier date/mode/nom/montant sur le reçu.
+    final repo = ref.read(financeRepositoryProvider);
+    final verified = await repo.verifyReceipt(receiptNumber);
+    if (verified == null) throw StateError('Paiement enregistré introuvable.');
     final establishment = await ref.read(establishmentProvider.future);
-    final allocationRows = await ref.read(financeRepositoryProvider).paymentReceiptLines(receiptNumber);
-    final lines = allocationRows
-        .map((r) => ReceiptLine(
-              label: '${r['fee_name']} · ${r['period_key']}',
-              amount: r['amount'] as int,
-            ))
-        .toList();
     final prefs = preferences ?? await ReceiptPrintingPreferencesStore().load();
-    final printer = ReceiptPrinter(ReceiptService());
-    try {
-      await printer.printReceipt(
-        establishment: establishment,
-        receiptNumber: receiptNumber,
-        beneficiaryName: beneficiaryName,
-        amount: amount,
-        paymentMethod: _method,
-        paidAt: paidAt,
-        paymentReference: _reference.text.trim(),
-        lines: lines,
-        format: format,
-        directToPrinter: directToPrinter,
-        printerUrl: prefs.printerUrl,
-        showLogo: format.isPos ? prefs.showLogo : true,
-        includeDetails: format.isPos ? prefs.includeDetails : true,
-        copies: format.isPos ? prefs.copies : 1,
-      );
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Impossible d'imprimer le reçu : $error")),
-        );
-      }
-    }
+    await ReceiptPrinter(ReceiptService()).printVerifiedReceipt(
+      establishment: establishment,
+      receipt: verified,
+      format: format,
+      directToPrinter: directToPrinter,
+      printerUrl: prefs.printerUrl,
+      showLogo: format.isPos ? prefs.showLogo : true,
+      includeDetails: format.isPos ? prefs.includeDetails : true,
+      copies: format.isPos ? prefs.copies : 1,
+    );
   }
 
   @override
