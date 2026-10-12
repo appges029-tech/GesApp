@@ -1,0 +1,45 @@
+name: GesApp Super Admin PR validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/security/super_admin_*.dart'
+      - 'lib/services/super_admin_service.dart'
+      - 'supabase/functions/super-admin-api/index.ts'
+      - 'test/super_admin_*.dart'
+      - '.github/workflows/super_admin_pr_validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Analyze Flutter
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+      - name: Validate Super Admin filters
+        run: flutter test test/super_admin_console_filters_test.dart
+      - name: Validate existing security tests
+        run: flutter test test/tenant_subscription_access_test.dart test/tenant_data_isolation_test.dart
+
+  edge-function-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check Super Admin Edge Function types
+        run: deno check supabase/functions/super-admin-api/index.ts
