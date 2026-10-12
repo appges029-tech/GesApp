@@ -1,6 +1,12 @@
 name: GesApp Android Debug CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build_android.yml'
+      - 'lib/features/security/super_admin_*.dart'
+      - 'lib/services/super_admin_service.dart'
   workflow_dispatch:
 
 permissions:
