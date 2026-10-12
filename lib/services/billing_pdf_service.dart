@@ -22,11 +22,12 @@ class BillingPdfService {
         footer: (context) => DocumentPdfChrome.footer(context, identity, reference: reference),
         build: (_) => [
           pw.SizedBox(height: 12),
-          pw.Text(invoice ? 'FACTURE DÉTAILLÉE' : 'AVIS D’ÉCHÉANCE', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+          pw.Text(invoice ? 'FACTURE D’ÉCHÉANCE' : 'AVIS D’ÉCHÉANCE', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
           pw.Text('Référence : $reference', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 16),
           pw.TableHelper.fromTextArray(
             data: [
+              ['Année scolaire', v('school_year_label')],
               ['Élève', v('student')],
               ['Matricule', v('registration_number')],
               ['Cycle / classe', '${v('cycle')} · ${v('classroom')}'],
