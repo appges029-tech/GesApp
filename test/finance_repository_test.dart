@@ -414,7 +414,13 @@ void main() {
     await finance.refundPayment(
       paymentId: payment.id, amount: 10000, reason: 'Trop versé',
       paymentMethod: 'Espèces', cashAccountId: 'main_cash');
+    // Le nom du bénéficiaire reste celui enregistré lors de l'encaissement,
+    // même si la fiche scolaire est modifiée après coup.
+    await AppDatabase.instance.db.update('students',
+      {'last_name': 'Modifié'},
+      where: 'id = ?', whereArgs: [student.id]);
     final result = (await finance.verifyReceipt(receipt))!;
+    expect(result.beneficiaryName, contains('Historique'));
     expect(result.amount, 30000);
     expect(result.refundedAmount, 10000);
     expect(result.netAmount, 20000);
