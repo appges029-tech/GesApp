@@ -2,6 +2,7 @@ import 'package:intl/intl.dart';
 
 import '../core/platform/pdf_output_service.dart';
 import '../data/repositories/settings_repository.dart';
+import '../data/models/finance.dart';
 import 'document_identity.dart';
 import 'document_number_service.dart';
 import 'pos_printer_service.dart';
@@ -10,6 +11,37 @@ import 'receipt_service.dart';
 class ReceiptPrinter {
   ReceiptPrinter(this._service);
   final ReceiptService _service;
+
+  /// Imprime les données comptables persistées et non l'état d'un formulaire.
+  Future<void> printVerifiedReceipt({
+    required ReceiptVerificationResult receipt,
+    EstablishmentData? establishment,
+    ReceiptFormat format = ReceiptFormat.a5,
+    bool directToPrinter = false,
+    String? printerUrl,
+    bool showLogo = true,
+    bool includeDetails = true,
+    int copies = 1,
+  }) => printReceipt(
+    establishment: establishment,
+    receiptNumber: receipt.receiptNumber,
+    beneficiaryName: receipt.beneficiaryName,
+    amount: receipt.amount,
+    paymentMethod: receipt.method,
+    paidAt: receipt.paidAt,
+    paymentReference: receipt.transactionReference ?? '',
+    lines: receipt.lines.map((line) =>
+        ReceiptLine(label: line.label, amount: line.amount)).toList(),
+    refundedAmount: receipt.refundedAmount,
+    isCancelled: receipt.isCancelled,
+    cancelReason: receipt.cancelReason,
+    format: format,
+    directToPrinter: directToPrinter,
+    printerUrl: printerUrl,
+    showLogo: showLogo,
+    includeDetails: includeDetails,
+    copies: copies,
+  );
 
   Future<void> printReceipt({
     required String receiptNumber,
@@ -20,6 +52,9 @@ class ReceiptPrinter {
     EstablishmentData? establishment,
     String paymentReference = '',
     List<ReceiptLine> lines = const [],
+    int refundedAmount = 0,
+    bool isCancelled = false,
+    String? cancelReason,
     ReceiptFormat format = ReceiptFormat.a5,
     bool directToPrinter = false,
     String? printerUrl,
@@ -38,6 +73,9 @@ class ReceiptPrinter {
       dateLabel: DateFormat('dd/MM/yyyy HH:mm').format(paidAt),
       paymentReference: paymentReference,
       lines: lines,
+      refundedAmount: refundedAmount,
+      isCancelled: isCancelled,
+      cancelReason: cancelReason,
     );
     final bytes = await _service.generate(
       data,
@@ -65,6 +103,7 @@ class ReceiptPrinter {
       return;
     }
 
-    await outputPdf(bytes, fileName: format == ReceiptFormat.a5 ? 'Recu-$receiptNumber.pdf' : 'Recu-$receiptNumber-${format.storageKey}.pdf');
+    final saved = await outputPdf(bytes, fileName: format == ReceiptFormat.a5 ? 'Recu-$receiptNumber.pdf' : 'Recu-$receiptNumber-${format.storageKey}.pdf');
+    if (saved == null) throw StateError('L’enregistrement ou l’impression du reçu a été annulé.');
   }
 }
