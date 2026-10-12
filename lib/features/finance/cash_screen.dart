@@ -44,7 +44,10 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   Future<void> _load() async {
     final repo = ref.read(cashRepositoryProvider);
     final accounts = await repo.accounts();
-    final selected = _account ?? (accounts.isEmpty ? null : accounts.first['id'] as String?);
+    final preferred = _account;
+    final selected = accounts.any((account) => account['id'] == preferred)
+        ? preferred
+        : (accounts.isEmpty ? null : accounts.first['id'] as String?);
     final selectedRow = accounts.where((a) => a['id'] == selected).firstOrNull;
     final session = selected != null && selectedRow?['type'] == 'cash'
         ? await repo.openSession(selected)
