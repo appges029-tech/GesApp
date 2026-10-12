@@ -21,6 +21,7 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
   bool _loading = true;
   String? _schoolYearId, _cycleId, _classroomId;
   String? _error;
+  int _requestId = 0;
 
   @override
   void initState() {
@@ -36,6 +37,7 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
 
   Future<void> _load() async {
     if (!mounted) return;
+    final request = ++_requestId;
     setState(() { _loading = true; _error = null; });
     try {
       final rows = await ref.read(recoveryRepositoryProvider).cases(
@@ -44,14 +46,16 @@ class _RecoveryScreenState extends ConsumerState<RecoveryScreen> {
         cycleId: _cycleId,
         classroomId: _classroomId,
       );
-      if (mounted) setState(() => _cases = rows);
+      if (mounted && request == _requestId) setState(() => _cases = rows);
     } catch (error) {
-      if (mounted) setState(() {
+      if (mounted && request == _requestId) setState(() {
         _error = '$error';
         _cases = const [];
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && request == _requestId) {
+        setState(() => _loading = false);
+      }
     }
   }
 
