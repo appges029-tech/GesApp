@@ -7,7 +7,10 @@ import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 
 class CashScreen extends ConsumerStatefulWidget {
-  const CashScreen({super.key});
+  const CashScreen({super.key, this.initialAccountId});
+
+  /// Caisse à présélectionner depuis un encaissement.
+  final String? initialAccountId;
 
   @override
   ConsumerState<CashScreen> createState() => _CashScreenState();
@@ -25,6 +28,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   @override
   void initState() {
     super.initState();
+    _account = widget.initialAccountId;
     _load();
   }
 
