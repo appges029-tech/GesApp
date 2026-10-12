@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:sqflite_common/utils/utils.dart';
 import 'package:uuid/uuid.dart';
@@ -859,6 +861,27 @@ class FinanceRepository {
 
   // --- Encaissements -------------------------------------------------------
 
+  /// Trace immuable des affectations d'origine, dans la même transaction que
+  /// l'encaissement. Compatible avec le schéma SQLite historique.
+  Future<void> _preserveOriginalAllocations(Transaction txn, String paymentId) async {
+    final original = await txn.rawQuery('''
+      SELECT d.student_id, s.last_name || ' ' || s.first_name AS student_name,
+             f.name AS fee_name, d.period_key, pa.amount
+      FROM payment_allocations pa
+      JOIN dues d ON d.id = pa.due_id
+      JOIN students s ON s.id = d.student_id
+      JOIN fee_categories f ON f.id = d.fee_id
+      WHERE pa.payment_id = ?
+      ORDER BY d.period_key, d.due_date, d.created_at, d.id
+    ''', [paymentId]);
+    await txn.insert('app_settings', {
+      'key': 'payment_allocations_original:$paymentId',
+      'value': jsonEncode(original),
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+
   Future<String> _nextReceiptNumber(DatabaseExecutor db) async {
     final year = DateTime.now().year;
     final key = 'receipt_sequence_$year';
@@ -1026,6 +1049,21 @@ class FinanceRepository {
         throw StateError('Une référence de transaction est obligatoire pour « $method ».');
       }
       await ensureCashMovementAllowed(txn, cashAccountId);
+      final selectedOutstanding = dueIds == null
+          ? outstanding
+          : await _selectedOutstandingForPayer(
+              txn,
+              dueIds: dueIds,
+              schoolYearId: yearId,
+              studentId: studentId,
+            );
+      if (dueIds != null && dueIds.isEmpty) {
+        throw StateError('Sélectionnez au moins une échéance à régler.');
+      }
+      if (selectedOutstanding <= 0 || amount > selectedOutstanding) {
+        throw StateError('Le montant dépasse les échéances payables sélectionnées. '
+            'Aucun avoir automatique ne sera créé.');
+      }
       receipt = await _nextReceiptNumber(txn);
       await txn.insert('payments', {
         'id': id,
@@ -1045,14 +1083,6 @@ class FinanceRepository {
         'created_at': now.toIso8601String(),
       });
       final selected = dueIds;
-      final selectedOutstanding = selected == null
-          ? outstanding
-          : await _selectedOutstandingForPayer(
-              txn,
-              dueIds: selected,
-              schoolYearId: yearId,
-              studentId: studentId,
-            );
       if (selected == null || selected.isNotEmpty) {
         await _allocateToDues(
           txn,
@@ -1069,6 +1099,7 @@ class FinanceRepository {
       final credit = amount > selectedOutstanding ? amount-selectedOutstanding : 0;
       await txn.update('payments',{'credit_amount':credit},where:'id = ?',whereArgs:[id]);
       if(credit>0) await txn.insert('payer_credits',{'id':_uuid.v4(),'student_id':studentId,'amount':credit,'source_payment_id':id,'status':'available','created_at':now.toIso8601String()});
+      await _preserveOriginalAllocations(txn, id);
       await txn.insert('audit_log', {
         'entity_type': 'payment',
         'entity_id': id,
@@ -1127,6 +1158,21 @@ class FinanceRepository {
         throw StateError('Une référence de transaction est obligatoire pour « $method ».');
       }
       await ensureCashMovementAllowed(txn, cashAccountId);
+      final selectedOutstanding = dueIds == null
+          ? outstanding
+          : await _selectedOutstandingForPayer(
+              txn,
+              dueIds: dueIds,
+              schoolYearId: yearId,
+              familyId: familyId,
+            );
+      if (dueIds != null && dueIds.isEmpty) {
+        throw StateError('Sélectionnez au moins une échéance à régler.');
+      }
+      if (selectedOutstanding <= 0 || amount > selectedOutstanding) {
+        throw StateError('Le montant dépasse les échéances payables sélectionnées. '
+            'Aucun avoir automatique ne sera créé.');
+      }
       receipt = await _nextReceiptNumber(txn);
       await txn.insert('payments', {
         'id': id,
@@ -1146,14 +1192,6 @@ class FinanceRepository {
         'created_at': now.toIso8601String(),
       });
       final selected = dueIds;
-      final selectedOutstanding = selected == null
-          ? outstanding
-          : await _selectedOutstandingForPayer(
-              txn,
-              dueIds: selected,
-              schoolYearId: yearId,
-              familyId: familyId,
-            );
       if (selected == null || selected.isNotEmpty) {
         await _allocateToDues(
           txn,
@@ -1170,6 +1208,7 @@ class FinanceRepository {
       final credit=amount>selectedOutstanding?amount-selectedOutstanding:0;
       await txn.update('payments',{'credit_amount':credit},where:'id = ?',whereArgs:[id]);
       if(credit>0) await txn.insert('payer_credits',{'id':_uuid.v4(),'family_id':familyId,'amount':credit,'source_payment_id':id,'status':'available','created_at':now.toIso8601String()});
+      await _preserveOriginalAllocations(txn, id);
       await txn.insert('audit_log', {
         'entity_type': 'payment',
         'entity_id': id,
@@ -1362,6 +1401,7 @@ class FinanceRepository {
         throw StateError('Le remboursement dépasse le montant encore remboursable.');
       }
 
+      await _preserveOriginalAllocations(txn, paymentId);
       var remaining = amount;
       final credits = await txn.query(
         'payer_credits',
@@ -1556,6 +1596,7 @@ class FinanceRepository {
           whereArgs: [due['id']],
         );
       }
+      await _preserveOriginalAllocations(txn, paymentId);
       await txn.delete('payment_allocations', where: 'payment_id = ?', whereArgs: [paymentId]);
       await txn.update('payer_credits', {'status':'cancelled','amount':0}, where:'source_payment_id = ?', whereArgs:[paymentId]);
 
@@ -1580,15 +1621,31 @@ class FinanceRepository {
   }
 
   Future<List<Map<String, Object?>>> paymentReceiptLines(String receiptNumber) async {
+    final payments = await _database.db.query('payments',
+        columns: ['id'], where: 'receipt_number = ?', whereArgs: [receiptNumber], limit: 1);
+    if (payments.isEmpty) return const [];
+    final paymentId = payments.single['id'] as String;
+    final history = await _database.db.query('app_settings',
+        columns: ['value'], where: 'key = ?',
+        whereArgs: ['payment_allocations_original:$paymentId'], limit: 1);
+    if (history.isNotEmpty) {
+      final decoded = jsonDecode(history.single['value'] as String);
+      if (decoded is! List) throw StateError('Historique des affectations invalide.');
+      return decoded.map((entry) =>
+          Map<String, Object?>.from(entry as Map)).toList(growable: false);
+    }
+    // Les paiements antérieurs sont restitués à partir de leurs allocations
+    // restantes ; aucune ancienne allocation supprimée n'est inventée.
     return _database.db.rawQuery('''
-      SELECT f.name fee_name, d.period_key, pa.amount
+      SELECT d.student_id, s.last_name || ' ' || s.first_name AS student_name,
+             f.name AS fee_name, d.period_key, pa.amount
       FROM payment_allocations pa
-      JOIN payments p ON p.id = pa.payment_id
       JOIN dues d ON d.id = pa.due_id
+      JOIN students s ON s.id = d.student_id
       JOIN fee_categories f ON f.id = d.fee_id
-      WHERE p.receipt_number = ?
-      ORDER BY d.due_date, d.created_at
-    ''', [receiptNumber]);
+      WHERE pa.payment_id = ?
+      ORDER BY d.period_key, d.due_date, d.created_at, d.id
+    ''', [paymentId]);
   }
 
   Future<ReceiptVerificationResult?> verifyReceipt(String receiptNumber) async {
@@ -1622,7 +1679,7 @@ class FinanceRepository {
     final allocationRows = await paymentReceiptLines(row['receipt_number'] as String);
     final lines = allocationRows
         .map((r) => ReceiptVerificationLine(
-              label: '${r['fee_name']} · ${r['period_key']}',
+              label: '${r['student_name']} · ${r['fee_name']} · ${r['period_key']}',
               amount: r['amount'] as int,
             ))
         .toList(growable: false);
