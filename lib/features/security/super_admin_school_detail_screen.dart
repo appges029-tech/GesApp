@@ -321,8 +321,9 @@ class _SuperAdminSchoolDetailScreenState
                       title: Text('${device['platform'] ?? 'Inconnu'}'
                         ' · Version ${device['app_version'] ?? 'non transmise'}'),
                       subtitle: Text('Dernier contact : ${_date(device['last_seen_at'])}\n'
-                        'Clé appareil : ${(device['device_key'] ?? '').toString().substring(0,
-                          (device['device_key'] ?? '').toString().length.clamp(0, 12))}…'),
+                        'Clé appareil : ${(device['device_key'] ?? '').toString().length > 12
+                            ? (device['device_key'] ?? '').toString().substring(0, 12)
+                            : (device['device_key'] ?? '').toString()}…'),
                       isThreeLine: true,
                     ),
               ], icon: Icons.devices_other_outlined),
