@@ -66,7 +66,7 @@ class _PaymentNoticesScreenState extends ConsumerState<PaymentNoticesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez sélectionner une classe / salle.')));
       return;
     }
-    setState(() => _loading = true);
+    setState(() { _loading = true; _preview = const []; });
     try {
       final filter = ReportFilter(
         cycleId: _cycleId,
@@ -89,10 +89,10 @@ class _PaymentNoticesScreenState extends ConsumerState<PaymentNoticesScreen> {
   }
 
   Future<void> _generatePdf() async {
-    if (_preview.isEmpty) {
-      await _loadPreview();
-      if (_preview.isEmpty) return;
-    }
+    // Les dettes sont relues au moment de la génération, même après un aperçu.
+    // Un paiement enregistré entre-temps ne doit jamais laisser un appel périmé.
+    await _loadPreview();
+    if (!mounted || _preview.isEmpty) return;
     setState(() => _loading = true);
     try {
       final establishment = await ref.read(establishmentProvider.future);
