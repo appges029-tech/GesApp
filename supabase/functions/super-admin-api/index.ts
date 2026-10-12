@@ -421,10 +421,22 @@ Deno.serve(async (req) => {
     if (action === "renew_subscription") {
       const organizationId = String(body.organization_id ?? "");
       const cycle = String(body.subscription_cycle ?? "");
+      // La référence est conservée pour compatibilité avec d'anciens clients.
+      // La nouvelle console exige son renseignement avant l'activation.
+      const reference = String(body.reference ?? "").trim().slice(0, 200);
       if (!organizationId || !["monthly","annual"].includes(cycle)) return json(req, { error: "abonnement_invalide" }, 400);
+      if (reference) {
+        const { data: duplicate, error: duplicateError } = await server
+          .from("subscription_payments").select("id")
+          .eq("organization_id", organizationId).eq("reference", reference).limit(1);
+        if (duplicateError) return json(req, { error: duplicateError.message }, 500);
+        if ((duplicate ?? []).length > 0) {
+          return json(req, { error: "reference_paiement_deja_utilisee" }, 409);
+        }
+      }
       const { data, error } = await server.rpc("admin_confirm_subscription", {
         p_organization_id: organizationId, p_cycle: cycle,
-        p_approver: admin.user_id, p_reference: String(body.reference ?? "").slice(0, 200),
+        p_approver: admin.user_id, p_reference: reference,
       });
       if (error) return json(req, { error: error.message }, 409);
       return json(req, { ok: true, subscription: data });
