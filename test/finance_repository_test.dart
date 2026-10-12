@@ -8,6 +8,8 @@ import 'package:gesapp/data/repositories/cash_repository.dart';
 import 'package:gesapp/data/repositories/accounting_repository.dart';
 import 'package:gesapp/data/repositories/family_repository.dart';
 import 'package:gesapp/data/repositories/finance_repository.dart';
+import 'package:gesapp/data/repositories/recovery_repository.dart';
+import 'package:gesapp/data/repositories/report_repository.dart';
 import 'package:gesapp/data/repositories/settings_repository.dart';
 import 'package:gesapp/data/repositories/student_repository.dart';
 
@@ -84,6 +86,52 @@ void main() {
     final dues = await finance.dues();
     expect(dues, hasLength(9));
     expect(dues.every((d) => d.amountDue == 15000), isTrue);
+  });
+
+  test('l’échéance du jour n’est pas en retard et respecte le filtre classe', () async {
+    final firstClass = await createClass('6e Test A');
+    final otherClass = await createClass('6e Test B');
+    await students.add(firstName: 'Enfant', lastName: 'Alpha',
+      classroomId: firstClass.$2);
+    await students.add(firstName: 'Enfant', lastName: 'Bravo',
+      classroomId: otherClass.$2);
+    await finance.createFeeWithTariff(
+      name: 'Scolarité contrôle', periodicity: 'mensuelle',
+      amount: 5000, cycleId: firstClass.$1,
+      validFrom: DateTime(2026, 10, 1));
+    final dues = await finance.dues(unpaidOnly: true);
+    expect(dues.length, greaterThanOrEqualTo(2));
+
+    final today = DateTime.now();
+    final day = DateTime(today.year, today.month, today.day);
+    final next = day.add(const Duration(days: 30)).toIso8601String();
+    for (final due in dues) {
+      await AppDatabase.instance.db.update(
+        'dues', {'due_date': next},
+        where: 'id = ?', whereArgs: [due.id]);
+    }
+    final dueToday = dues[0];
+    final overdue = dues.firstWhere((d) => d.studentId != dueToday.studentId);
+    await AppDatabase.instance.db.update(
+      'dues', {'due_date': day.toIso8601String()},
+      where: 'id = ?', whereArgs: [dueToday.id]);
+    await AppDatabase.instance.db.update(
+      'dues', {'due_date': day.subtract(const Duration(days: 1)).toIso8601String()},
+      where: 'id = ?', whereArgs: [overdue.id]);
+
+    final rec = RecoveryRepository(AppDatabase.instance);
+    final late = await rec.cases();
+    expect(late.any((item) => item.dueId == dueToday.id), isFalse);
+    expect(late.any((item) => item.dueId == overdue.id), isTrue);
+    final selected = await rec.cases(
+      classroomId: overdue.studentId == dueToday.studentId
+          ? firstClass.$2 : otherClass.$2);
+    expect(selected.any((item) => item.dueId == overdue.id), isTrue);
+
+    final aging = await ReportRepository(AppDatabase.instance).agingReport();
+    final totalLate = aging.fold<int>(
+      0, (sum, row) => sum + ((row['solde'] as num?)?.toInt() ?? 0));
+    expect(totalLate, 5000);
   });
 
   test('erreur de saisie ne laisse pas une rubrique orpheline', () async {

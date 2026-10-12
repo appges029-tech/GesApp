@@ -2,118 +2,251 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_ui.dart';
-import '../../data/models/finance_full.dart';
+import '../../data/repositories/report_repository.dart';
+import 'finance_scope_filters.dart';
+import 'payment_form_screen.dart';
 
-/// Une échéance future est une obligation programmée, pas un retard.
-class DuesScreen extends ConsumerWidget {
+enum _DueView { overdue, today, upcoming, undated, all }
+
+/// Suivi par périmètre scolaire : même source de données que les exports.
+class DuesScreen extends ConsumerStatefulWidget {
   const DuesScreen({super.key});
 
-  DateTime _day(DateTime value) =>
-      DateTime(value.year, value.month, value.day);
+  @override
+  ConsumerState<DuesScreen> createState() => _DuesScreenState();
+}
 
-  Widget _section(String title, List<DueItem> dues, {bool emphasize = false}) {
-    if (dues.isEmpty) return const SizedBox.shrink();
-    final total = dues.fold<int>(0, (sum, d) => sum + d.balance);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(padding: const EdgeInsets.fromLTRB(4, 18, 4, 6),
-        child: Text(title + ' · ' + formatXaf(total),
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
-      ...dues.map((due) => Card(child: ListTile(
-        leading: Icon(emphasize ? Icons.warning_amber_rounded
-          : Icons.calendar_today_outlined),
-        title: Text(due.studentName),
-        subtitle: Text(due.feeName + ' · ' + due.periodKey +
-          (due.dueDate == null ? '' :
-           ' · limite ' + due.dueDate!.day.toString().padLeft(2, '0') + '/' +
-            due.dueDate!.month.toString().padLeft(2, '0') + '/' +
-            due.dueDate!.year.toString())),
-        trailing: Text(formatXaf(due.balance),
-          style: const TextStyle(fontWeight: FontWeight.w800)),
-      ))),
-    ]);
+class _DuesScreenState extends ConsumerState<DuesScreen> {
+  final _search = TextEditingController();
+  String? _yearId, _cycleId, _classroomId;
+  _DueView _view = _DueView.overdue;
+  Future<List<Map<String, Object?>>>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(unpaidDuesProvider);
-    final body = state.when(
-        data: (items) {
-          if (items.isEmpty) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.event_available_outlined, size: 44),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Aucune période impayée',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Si un élève devrait avoir une dette, vérifiez la rubrique, '
-                        'le tarif de son cycle ou de sa classe et '
-                        'son inscription dans l’année scolaire active. '
-                        'Les périodes sont générées automatiquement.',
-                        textAlign: TextAlign.center,
-                      ),
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-          final now = DateTime.now();
-          final today = DateTime(now.year, now.month, now.day);
-          final past = <DueItem>[];
-          final todayDues = <DueItem>[];
-          final upcoming = <DueItem>[];
-          final undated = <DueItem>[];
-          for (final item in items) {
-            final due = item.dueDate;
-            if (due == null) {
-              undated.add(item);
-            } else if (_day(due).isBefore(today)) {
-              past.add(item);
-            } else if (_day(due).isAtSameMomentAs(today)) {
-              todayDues.add(item);
-            } else {
-              upcoming.add(item);
-            }
-          }
-          return ListView(padding: const EdgeInsets.all(16), children: [
-            const Card(child: Padding(padding: EdgeInsets.all(14),
-              child: Text('Seules les périodes dont la date limite est '
-                'dépassée constituent des retards. Les mensualités futures '
-                'restent visibles dans le calendrier sans être comptées '
-                'comme des retards.'))),
-            _section('En retard', past, emphasize: true),
-            _section('À régler aujourd’hui', todayDues),
-            _section('Périodes à venir', upcoming),
-            _section('Périodes sans date limite', undated),
-          ]);
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text('Impossible de charger les impayés. Réessayez ou vérifiez les tarifs.')),
-      );
-    if (WindowsUi.isDesktop(context)) {
-      return WindowsPageScaffold(
-        title: 'Suivi des impayés',
-        subtitle: 'Retards, échéances actuelles et obligations futures',
-        body: body,
-      );
-    }
-    return Scaffold(
-      appBar: AppBar(title: const Text('Suivi des impayés')),
-      body: body,
+  void _reload() {
+    _future = ref.read(reportRepositoryProvider).unpaid(
+      filter: ReportFilter(
+        schoolYearId: _yearId,
+        cycleId: _cycleId,
+        classroomId: _classroomId,
+      ),
     );
+    if (mounted) setState(() {});
+  }
+
+  DateTime? _date(Object? value) =>
+      value == null ? null : DateTime.tryParse(value.toString());
+
+  _DueView _type(Map<String, Object?> row, DateTime today) {
+    final due = _date(row['due_date']);
+    if (due == null) return _DueView.undated;
+    final day = DateTime(due.year, due.month, due.day);
+    if (day.isBefore(today)) return _DueView.overdue;
+    if (day.isAfter(today)) return _DueView.upcoming;
+    return _DueView.today;
+  }
+
+  String _label(_DueView value) => switch (value) {
+    _DueView.overdue => 'En retard',
+    _DueView.today => 'À régler aujourd’hui',
+    _DueView.upcoming => 'À venir',
+    _DueView.undated => 'Sans date limite',
+    _DueView.all => 'Toutes les échéances non soldées',
+  };
+
+  Future<void> _collect(Map<String, Object?> row) async {
+    if (!OperatorSession.isManager) return;
+    final years = await ref.read(schoolYearsProvider.future);
+    final active = years.where((y) => y.isActive).firstOrNull;
+    if (_yearId != null && _yearId != active?.id) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pour régler une ancienne échéance, '
+            'utilisez le formulaire de paiement après avoir vérifié '
+            'l’année scolaire concernée.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => PaymentFormScreen(
+        initialStudentId: row['student_id'] as String?,
+        initialDueId: row['due_id'] as String?,
+      ),
+    ));
+    ref.invalidate(unpaidDuesProvider);
+    _reload();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final years = ref.watch(schoolYearsProvider);
+    final active = years.valueOrNull?.where((y) => y.isActive).firstOrNull;
+    final chosen = _yearId == null
+        ? active : years.valueOrNull?.where((y) => y.id == _yearId).firstOrNull;
+    final hasYear = chosen != null;
+    final future = _future;
+
+    final content = Column(children: [
+      Card(child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Filtrer les impayés',
+            style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 10),
+          FinanceScopeFilters(
+            yearId: _yearId, cycleId: _cycleId,
+            classroomId: _classroomId,
+            onYear: (id) { _yearId = id; _cycleId = null; _classroomId = null; _reload(); },
+            onCycle: (id) { _cycleId = id; _classroomId = null; _reload(); },
+            onClassroom: (id) { _classroomId = id; _reload(); },
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _search,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'Élève, matricule, famille ou rubrique',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: IconButton(
+                tooltip: 'Effacer la recherche',
+                icon: const Icon(Icons.clear),
+                onPressed: () { _search.clear(); setState(() {}); },
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<_DueView>(
+              showSelectedIcon: false,
+              multiSelectionEnabled: false,
+              selected: {_view},
+              onSelectionChanged: (selected) => setState(() => _view = selected.first),
+              segments: [
+                for (final view in _DueView.values)
+                  ButtonSegment(value: view, label: Text(_label(view))),
+              ],
+            ),
+          ),
+        ]),
+      )),
+      if (!hasYear)
+        const Expanded(child: Center(
+          child: Text('Sélectionnez ou activez une année scolaire '
+              'pour consulter les impayés.'),
+        ))
+      else
+        Expanded(child: FutureBuilder<List<Map<String, Object?>>>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) return Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Text('Chargement impossible : ${snapshot.error}'),
+                TextButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réessayer'),
+                ),
+              ]),
+            );
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final text = _search.text.trim().toLowerCase();
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            final filtered = snapshot.data!.where((row) {
+              if (_view != _DueView.all && _type(row, today) != _view) return false;
+              final haystack = [
+                row['student'], row['registration_number'],
+                row['family'], row['fee'], row['period_key'],
+              ].map((x) => (x ?? '').toString().toLowerCase()).join(' ');
+              return text.isEmpty || haystack.contains(text);
+            }).toList(growable: false);
+            final total = filtered.fold<int>(0,
+              (sum, row) => sum + ((row['balance'] as num?)?.toInt() ?? 0));
+            final students = filtered.map((r) => r['student_id']).toSet().length;
+            return RefreshIndicator(
+              onRefresh: () async { _reload(); await _future; },
+              child: CustomScrollView(slivers: [
+                SliverToBoxAdapter(child: Card(child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Wrap(spacing: 16, runSpacing: 7, children: [
+                    Text('Année : ${chosen.label}',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text('${filtered.length} échéance(s)'),
+                    Text('$students élève(s)'),
+                    Text('Reste : ${formatXaf(total)}',
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                  ]),
+                ))),
+                if (filtered.isEmpty)
+                  SliverFillRemaining(hasScrollBody: false,
+                    child: Center(child: Text(
+                      text.isEmpty ? 'Aucune échéance pour ce périmètre.'
+                          : 'Aucun résultat pour cette recherche.')))
+                else
+                  SliverList.builder(
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final due = filtered[index];
+                      final deadline = _date(due['due_date']);
+                      final remaining = (due['balance'] as num?)?.toInt() ?? 0;
+                      return Card(child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 3),
+                        leading: const Icon(Icons.receipt_long_outlined),
+                        title: Text('${due['student'] ?? 'Élève'} · ${formatXaf(remaining)}',
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                        subtitle: Text(
+                          '${due['cycle'] ?? '—'} / ${due['classroom'] ?? '—'}'
+                          ' · ${due['fee'] ?? '—'} · ${due['period_key'] ?? '—'}\n'
+                          'Dû ${formatXaf((due['amount_due'] as num?) ?? 0)}'
+                          ' · Payé ${formatXaf((due['amount_paid'] as num?) ?? 0)}'
+                          ' · Échéance ${deadline == null ? 'non précisée' : '${deadline.day.toString().padLeft(2, '0')}/${deadline.month.toString().padLeft(2, '0')}/${deadline.year}'}',
+                        ),
+                        isThreeLine: true,
+                        trailing: OperatorSession.isManager
+                            ? IconButton(
+                                tooltip: 'Encaisser pour cet élève',
+                                onPressed: () => _collect(due),
+                                icon: const Icon(Icons.add_card_outlined),
+                              ) : null,
+                      ));
+                    },
+                  ),
+              ]),
+            );
+          },
+        )),
+    ]);
+
+    return WindowsUi.isDesktop(context)
+        ? WindowsPageScaffold(
+            title: 'Gestion des impayés',
+            subtitle: 'Année scolaire, cycle, classe et suivi des paiements',
+            body: content)
+        : Scaffold(
+            appBar: AppBar(title: const Text('Gestion des impayés'),
+              actions: [
+                IconButton(onPressed: _reload, icon: const Icon(Icons.refresh),
+                  tooltip: 'Actualiser'),
+              ]),
+            body: content);
   }
 }

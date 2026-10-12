@@ -1,0 +1,47 @@
+name: GesApp finance UI and documents PR
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/features/finance/**'
+      - 'lib/features/reports/**'
+      - 'lib/data/repositories/recovery_repository.dart'
+      - 'lib/data/repositories/report_repository.dart'
+      - 'lib/services/report_pdf_service.dart'
+      - 'lib/services/billing_pdf_service.dart'
+      - 'lib/services/bilan_financier_pdf_service.dart'
+      - 'lib/services/document_identity.dart'
+      - 'lib/services/unpaid_report_presenter.dart'
+      - 'test/unpaid_report_presenter_test.dart'
+      - 'test/finance_pdf_document_test.dart'
+      - '.github/workflows/finance_unpaid_pr_validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-finance-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+          cache: true
+      - name: Prepare Flutter Web platform
+        run: |
+          flutter config --enable-web
+          if [ ! -f web/index.html ]; then flutter create --platforms=web .; fi
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Install SQLite Web runtime
+        run: dart run sqflite_common_ffi_web:setup --force
+      - name: Static analysis
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+      - name: Test finance workflows and PDF data
+        run: flutter test test/finance_repository_test.dart test/unpaid_report_presenter_test.dart test/payment_notice_batch_pdf_service_test.dart test/receipt_service_test.dart test/finance_pdf_document_test.dart
+      - name: Build production web
+        run: flutter build web --release --base-href /GesApp_2.2.2_AUDIT100_FIXED/

@@ -59,9 +59,11 @@ class ReportRepository {
 
   Future<List<Map<String,Object?>>> unpaid({ReportFilter filter=const ReportFilter()}) async {
     final scope=_studentScope(filter);final c=<String>["d.status != 'paid'"];final a=<Object?>[];
-    final yearId=await _effectiveSchoolYearId(filter); if(yearId!=null){c.add('d.school_year_id = ?');a.add(yearId);}
+    final yearId=await _effectiveSchoolYearId(filter);
+    if (yearId == null) throw StateError('Aucune année scolaire active pour les impayés.');
+    c.add('d.school_year_id = ?'); a.add(yearId);
     if(scope.sql.isNotEmpty){c.add(scope.sql);a.addAll(scope.args);} if(filter.start!=null){c.add('COALESCE(d.due_date,d.created_at) >= ?');a.add(filter.start!.toIso8601String());} if(filter.end!=null){c.add('COALESCE(d.due_date,d.created_at) < ?');a.add(filter.end!.toIso8601String());}
-    return _db.db.rawQuery('''SELECT d.id due_id,s.registration_number,s.last_name||' '||s.first_name student,cy.name cycle,c.name classroom,fam.name family,f.name fee,d.period_key,d.amount_due,d.amount_paid,(d.amount_due-d.amount_paid) balance,d.due_date
+    return _db.db.rawQuery('''SELECT d.id due_id,s.id student_id,s.registration_number,s.last_name||' '||s.first_name student,cy.name cycle,c.name classroom,fam.name family,f.name fee,d.period_key,d.amount_due,d.amount_paid,(d.amount_due-d.amount_paid) balance,d.due_date
       FROM dues d JOIN students s ON s.id=d.student_id JOIN student_enrollments se ON se.student_id=s.id AND se.school_year_id=d.school_year_id JOIN classrooms c ON c.id=se.classroom_id JOIN cycles cy ON cy.id=c.cycle_id LEFT JOIN families fam ON fam.id=s.family_id JOIN fee_categories f ON f.id=d.fee_id
       WHERE ${c.join(' AND ')} ORDER BY d.due_date,s.last_name''',a);
   }
@@ -133,11 +135,15 @@ class ReportRepository {
 
   Future<List<Map<String,Object?>>> agingReport({ReportFilter filter=const ReportFilter()}) async {
     final now=DateTime.now();
+    final today=DateTime(now.year,now.month,now.day);
     final rows=await unpaid(filter:filter);
     final buckets=<String,int>{'0-30 jours':0,'31-60 jours':0,'61-90 jours':0,'90+ jours':0};
     for(final row in rows){
       final raw=row['due_date']; if(raw==null) continue;
-      final days=now.difference(DateTime.parse(raw as String)).inDays; if(days<0) continue;
+      final date=DateTime.parse(raw as String);
+      final dueDay=DateTime(date.year,date.month,date.day);
+      if (!dueDay.isBefore(today)) continue;
+      final days=today.difference(dueDay).inDays;
       final key=days<=30?'0-30 jours':days<=60?'31-60 jours':days<=90?'61-90 jours':'90+ jours';
       buckets[key]=buckets[key]!+(row['balance'] as int);
     }
