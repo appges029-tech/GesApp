@@ -34,9 +34,7 @@ class FinanceScreen extends StatelessWidget {
           ? 'Rechercher, réimprimer ou rembourser'
           : 'Consulter et réimprimer les reçus', const PaymentsScreen()),
       _module(context, Icons.account_balance_wallet_outlined, 'Caisse et clôture',
-        OperatorSession.isManager
-          ? 'Ouvrir, clôturer et consulter la caisse'
-          : 'Consulter le solde et les mouvements', const CashScreen()),
+        'Contrôler les opérations et le solde de caisse', const CashScreen()),
       _module(context, Icons.warning_amber_rounded, 'Suivi des impayés',
         'Retards et sommes restant à régler', const DuesScreen()),
       if (OperatorSession.isManager)
@@ -48,8 +46,7 @@ class FinanceScreen extends StatelessWidget {
         'Définir les types de frais', const FeeCategoriesScreen()),
       _module(context, Icons.price_change_outlined, 'Grille tarifaire',
         'Tarifs par cycle ou par classe', const FeeGridScreen()),
-      if (OperatorSession.isManager)
-        _module(context, Icons.workspace_premium_outlined, 'Forfaits et remises',
+      _module(context, Icons.workspace_premium_outlined, 'Forfaits et remises',
         'Ajustements autorisés', const PackagesScreen()),
     ];
     final accounting = <Widget>[
@@ -71,9 +68,7 @@ class FinanceScreen extends StatelessWidget {
 
     return WindowsPageScaffold(
       title: 'Finances',
-      subtitle: OperatorSession.isManager
-        ? 'Encaissements, périodes dues, caisse et comptabilité'
-        : 'Consultation financière et suivi de l’établissement',
+      subtitle: 'Encaissements, périodes dues, caisse, recouvrement et comptabilité',
       body: ListView(
         padding: WindowsUi.isDesktop(context) ? EdgeInsets.zero : const EdgeInsets.all(16),
         children: [
@@ -81,19 +76,7 @@ class FinanceScreen extends StatelessWidget {
           WindowsModuleGrid(children: primary),
           const SizedBox(height: 26),
           _section(context, 'Configuration scolaire', 'Rubriques, tarifs et remises'),
-          if (OperatorSession.isManager)
-            WindowsModuleGrid(children: [
-              _module(context, Icons.add_circle_outline_rounded,
-                'Créer des frais scolaires',
-                'Nom, fréquence et montant dans un seul formulaire',
-                const SimpleFeeSetupScreen()),
-            ]),
-          ExpansionTile(
-            title: const Text('Gérer les rubriques et tarifs existants'),
-            subtitle: const Text('Options avancées : modifications, historique et remises'),
-            childrenPadding: const EdgeInsets.only(bottom: 12),
-            children: [WindowsModuleGrid(children: configuration)],
-          ),
+          WindowsModuleGrid(children: configuration),
           const SizedBox(height: 26),
           _section(context, 'Comptabilité et contrôles', 'Outils administratifs et vérification'),
           ExpansionTile(

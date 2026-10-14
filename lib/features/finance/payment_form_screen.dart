@@ -260,7 +260,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       });
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Chargement impossible : ${FriendlyError.message(error)}')));
+        SnackBar(content: Text('Chargement des périodes impossible : $error')));
     } finally {
       if (mounted) setState(() => _loadingBalance = false);
     }
@@ -808,7 +808,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 !_loadingBalance && _payerDues.isEmpty)
               const Card(child: ListTile(
                 leading: Icon(Icons.info_outline),
-                title: Text('Aucun frais à payer'),
+                title: Text('Aucune échéance disponible'),
                 subtitle: Text('Vérifiez que l’élève est inscrit dans l’année active '
                     'et qu’un tarif est défini pour son cycle ou sa classe.'))),
             if (_payerType == _PayerType.student && _payerDues.isNotEmpty) ...[
