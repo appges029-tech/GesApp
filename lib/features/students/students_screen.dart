@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/widgets/stored_image.dart';
 import '../../core/windows/windows_filter_panel.dart';
 import '../../core/windows/windows_page_scaffold.dart';
@@ -91,6 +92,241 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     await _load(reset: true);
   }
 
+  int get _activeFilterCount => [
+        _cycleId,
+        _classroomId,
+        _familyId,
+        _status,
+        _paymentStatus,
+      ].where((value) => value != null).length;
+
+  Future<void> _showMobileFilters() async {
+    final cycles = await ref.read(cyclesProvider.future);
+    final classrooms = await ref.read(classroomsProvider.future);
+    final families = await ref.read(familiesProvider.future);
+    if (!mounted) return;
+
+    var cycleId = _cycleId;
+    var classroomId = _classroomId;
+    var familyId = _familyId;
+    var status = _status;
+    var paymentStatus = _paymentStatus;
+
+    final applied = await showModalBottomSheet<bool>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final shownClasses = cycleId == null
+              ? classrooms
+              : classrooms.where((item) => item.cycleId == cycleId).toList();
+          if (classroomId != null &&
+              !shownClasses.any((item) => item.id == classroomId)) {
+            classroomId = null;
+          }
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+            ),
+            child: FractionallySizedBox(
+              heightFactor: .88,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Filtrer les élèves',
+                            style: Theme.of(sheetContext).textTheme.titleLarge,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setSheetState(() {
+                            cycleId = null;
+                            classroomId = null;
+                            familyId = null;
+                            status = null;
+                            paymentStatus = null;
+                          }),
+                          child: const Text('Effacer'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                      child: Column(
+                        children: [
+                          DropdownButtonFormField<String>(
+                            initialValue: cycleId,
+                            isExpanded: true,
+                            decoration: const InputDecoration(labelText: 'Cycle'),
+                            items: cycles
+                                .map((item) => DropdownMenuItem(
+                                      value: item['id'] as String,
+                                      child: Text(
+                                        item['name'] as String,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (value) => setSheetState(() {
+                              cycleId = value;
+                              classroomId = null;
+                            }),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            key: ValueKey('class-$cycleId-$classroomId'),
+                            initialValue: shownClasses.any((item) => item.id == classroomId)
+                                ? classroomId
+                                : null,
+                            isExpanded: true,
+                            decoration: const InputDecoration(labelText: 'Classe'),
+                            items: shownClasses
+                                .map((item) => DropdownMenuItem(
+                                      value: item.id,
+                                      child: Text(
+                                        '${item.cycleName} · ${item.name}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (value) =>
+                                setSheetState(() => classroomId = value),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: familyId,
+                            isExpanded: true,
+                            decoration: const InputDecoration(labelText: 'Famille'),
+                            items: families
+                                .map((item) => DropdownMenuItem(
+                                      value: item.id,
+                                      child: Text(
+                                        item.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (value) =>
+                                setSheetState(() => familyId = value),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: status,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Statut administratif',
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'active', child: Text('Actif')),
+                              DropdownMenuItem(value: 'transfere', child: Text('Transféré')),
+                              DropdownMenuItem(value: 'exclu', child: Text('Exclu')),
+                              DropdownMenuItem(value: 'abandon', child: Text('Abandon')),
+                            ],
+                            onChanged: (value) =>
+                                setSheetState(() => status = value),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: paymentStatus,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Situation de paiement',
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'paid', child: Text('À jour')),
+                              DropdownMenuItem(value: 'partial', child: Text('Partiellement payé')),
+                              DropdownMenuItem(value: 'unpaid', child: Text('Impayé')),
+                              DropdownMenuItem(value: 'overdue', child: Text('En retard')),
+                              DropdownMenuItem(value: 'no_due', child: Text('Aucun frais dû')),
+                              DropdownMenuItem(value: 'package', child: Text('Forfait actif')),
+                            ],
+                            onChanged: (value) =>
+                                setSheetState(() => paymentStatus = value),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(sheetContext, true),
+                      icon: const Icon(Icons.filter_alt),
+                      label: const Text('Appliquer les filtres'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    if (applied == true && mounted) {
+      setState(() {
+        _cycleId = cycleId;
+        _classroomId = classroomId;
+        _familyId = familyId;
+        _status = status;
+        _paymentStatus = paymentStatus;
+      });
+      await _load(reset: true);
+    }
+  }
+
+  Widget _mobileFilterChips() {
+    final chips = <Widget>[];
+    void addChip(String label, VoidCallback clear) {
+      chips.add(InputChip(label: Text(label), onDeleted: clear));
+    }
+    if (_cycleId != null) {
+      addChip('Cycle', () {
+        setState(() {
+          _cycleId = null;
+          _classroomId = null;
+        });
+        _load(reset: true);
+      });
+    }
+    if (_classroomId != null) {
+      addChip('Classe', () {
+        setState(() => _classroomId = null);
+        _load(reset: true);
+      });
+    }
+    if (_familyId != null) {
+      addChip('Famille', () {
+        setState(() => _familyId = null);
+        _load(reset: true);
+      });
+    }
+    if (_status != null) {
+      addChip('Statut', () {
+        setState(() => _status = null);
+        _load(reset: true);
+      });
+    }
+    if (_paymentStatus != null) {
+      addChip('Paiement', () {
+        setState(() => _paymentStatus = null);
+        _load(reset: true);
+      });
+    }
+    return Wrap(spacing: 8, runSpacing: 6, children: chips);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cycles = ref.watch(cyclesProvider);
@@ -159,30 +395,56 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
           DropdownMenuItem(value: 'partial', child: Text('Partiellement payé')),
           DropdownMenuItem(value: 'unpaid', child: Text('Impayé')),
           DropdownMenuItem(value: 'overdue', child: Text('En retard')),
-          DropdownMenuItem(value: 'no_due', child: Text('Aucune échéance')),
+          DropdownMenuItem(value: 'no_due', child: Text('Aucun frais dû')),
           DropdownMenuItem(value: 'package', child: Text('Forfait actif')),
         ],
         onChanged: (v) => setState(() => _paymentStatus = v),
       ),
     ];
 
+    final searchField = TextField(
+      controller: _search,
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search),
+        hintText: 'Nom, matricule, parent ou téléphone',
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.search),
+          onPressed: () => _load(reset: true),
+        ),
+      ),
+      onSubmitted: (_) => _load(reset: true),
+    );
+
     final filtersPanel = WindowsFilterPanel(
       active: _filter.isActive,
       onClear: _clear,
       onApply: () => _load(reset: true),
-      search: TextField(
-        controller: _search,
-        decoration: InputDecoration(
-          prefixIcon: const Icon(Icons.search),
-          hintText: 'Nom, matricule, parent ou téléphone',
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => _load(reset: true),
+      search: searchField,
+      filters: filterWidgets,
+    );
+
+    final mobileFilters = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        searchField,
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _showMobileFilters,
+            icon: const Icon(Icons.tune),
+            label: Text(
+              _activeFilterCount == 0
+                  ? 'Filtrer'
+                  : 'Filtrer ($_activeFilterCount)',
+            ),
           ),
         ),
-        onSubmitted: (_) => _load(reset: true),
-      ),
-      filters: filterWidgets,
+        if (_activeFilterCount > 0) ...[
+          const SizedBox(height: 6),
+          _mobileFilterChips(),
+        ],
+      ],
     );
 
     final desktopBody = Column(
@@ -213,7 +475,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 112),
         children: [
-          filtersPanel,
+          mobileFilters,
           const SizedBox(height: 8),
           if (_items.isEmpty && !_loading)
             const Padding(
@@ -260,15 +522,23 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
           label: 'Vérifier',
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentVerificationScreen())),
         ),
-        WindowsCommandButton(icon: Icons.upload_file, label: 'Importer', onPressed: _openImport),
+        if (!OperatorSession.isReadOnly)
+          WindowsCommandButton(icon: Icons.upload_file, label: 'Importer', onPressed: _openImport),
         WindowsCommandButton(
           icon: Icons.family_restroom,
           label: 'Familles',
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FamiliesScreen())),
         ),
-        if (desktop) WindowsCommandButton(icon: Icons.person_add_alt_1, label: 'Inscrire', primary: true, onPressed: _openAdd),
+        if (desktop && !OperatorSession.isReadOnly)
+          WindowsCommandButton(icon: Icons.person_add_alt_1, label: 'Inscrire', primary: true, onPressed: _openAdd),
       ],
-      floatingActionButton: desktop ? null : FloatingActionButton.extended(onPressed: _openAdd, icon: const Icon(Icons.person_add_alt_1), label: const Text('Inscrire')),
+      floatingActionButton: desktop || OperatorSession.isReadOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _openAdd,
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('Inscrire'),
+            ),
       body: desktop ? desktopBody : mobileBody,
     );
   }
@@ -293,7 +563,9 @@ class _StudentDesktopList extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return WindowsPanel(
       padding: EdgeInsets.zero,
-      child: Column(
+      child: WindowsAdaptiveTable(
+        minWidth: 1020,
+        child: Column(
         children: [
           Container(
             height: 40,
@@ -354,6 +626,7 @@ class _StudentDesktopList extends StatelessWidget {
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -363,6 +636,8 @@ class _StudentDesktopList extends StatelessWidget {
       'partial' => 'Partiel',
       'overdue' => 'En retard',
       'unpaid' => 'Impayé',
+      'pending_configuration' => 'Facturation incomplète',
+      'needs_review' => 'Facturation à vérifier',
       _ => 'Sans échéance',
     };
     return student.hasPackage ? '$label · Forfait' : label;
@@ -385,6 +660,8 @@ class _StudentCard extends StatelessWidget {
         'partial' => 'Partiel',
         'overdue' => 'En retard',
         'unpaid' => 'Impayé',
+      'pending_configuration' => 'Facturation incomplète',
+      'needs_review' => 'Facturation à vérifier',
         _ => 'Sans échéance',
       };
   @override

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../services/student_media_service.dart';
 
@@ -135,13 +136,13 @@ class _EstablishmentScreenState extends ConsumerState<EstablishmentScreen> {
                   ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
-              onPressed: _pickLogo,
+              onPressed: OperatorSession.isReadOnly ? null : _pickLogo,
               icon: const Icon(Icons.image),
               label: const Text('Changer le logo'),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _saving ? null : _save,
+              onPressed: _saving || OperatorSession.isReadOnly ? null : _save,
               child: _saving
                   ? const SizedBox(
                       height: 20,

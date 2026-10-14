@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'app/gesapp_app.dart';
 import 'core/db/app_database.dart';
@@ -18,6 +19,7 @@ Future<void> main() async {
   // démarrage de la release candidate.
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    await LiquidGlassWidgets.initialize();
     configurePlatformDatabase();
     await SupabaseBootstrap.initializeIfConfigured();
     await AppDatabase.instance.initialize().timeout(
@@ -29,7 +31,19 @@ Future<void> main() async {
     await ThemeController.instance.load();
     await LocalNotificationService.instance.initialize();
     await OfflineBackgroundService.initialize();
-    runApp(const ProviderScope(child: GesApp()));
+    runApp(
+      LiquidGlassWidgets.wrap(
+        adaptiveQuality: true,
+        respectSystemAccessibility: true,
+        brightnessResolver: Theme.maybeBrightnessOf,
+        theme: GlassThemeData.simple(
+          blur: 10,
+          thickness: 28,
+          quality: GlassQuality.standard,
+        ),
+        child: const ProviderScope(child: GesApp()),
+      ),
+    );
   } catch (error, stackTrace) {
     runApp(_StartupErrorApp(error: error, stackTrace: stackTrace));
   }

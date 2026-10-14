@@ -8,6 +8,8 @@ import 'package:gesapp/data/repositories/cash_repository.dart';
 import 'package:gesapp/data/repositories/accounting_repository.dart';
 import 'package:gesapp/data/repositories/family_repository.dart';
 import 'package:gesapp/data/repositories/finance_repository.dart';
+import 'package:gesapp/data/repositories/recovery_repository.dart';
+import 'package:gesapp/data/repositories/report_repository.dart';
 import 'package:gesapp/data/repositories/settings_repository.dart';
 import 'package:gesapp/data/repositories/student_repository.dart';
 
@@ -70,6 +72,114 @@ void main() {
     expect(schoolYear.endDate, DateTime(2027, 7, 31));
   });
 
+  test('parcours simple : frais et tarif sont créés ensemble', () async {
+    final target = await createClass('S1');
+    await students.add(firstName: 'Élève', lastName: 'Exemple',
+      classroomId: target.$2);
+    await finance.createFeeWithTariff(
+      name: 'Scolarité test', periodicity: 'mensuelle',
+      amount: 15000, cycleId: target.$1, validFrom: DateTime(2026, 10, 1));
+    final fees = await finance.feeCategories();
+    expect(fees.single.name, 'Scolarité test');
+    final tariffs = await finance.feeGrid();
+    expect(tariffs.single.amount, 15000);
+    final dues = await finance.dues();
+    expect(dues, hasLength(9));
+    expect(dues.every((d) => d.amountDue == 15000), isTrue);
+  });
+
+  test('l’échéance du jour n’est pas en retard et respecte le filtre classe', () async {
+    final firstClass = await createClass('6e Test A');
+    final otherClass = await createClass('6e Test B');
+    await students.add(firstName: 'Enfant', lastName: 'Alpha',
+      classroomId: firstClass.$2);
+    await students.add(firstName: 'Enfant', lastName: 'Bravo',
+      classroomId: otherClass.$2);
+    await finance.createFeeWithTariff(
+      name: 'Scolarité contrôle', periodicity: 'mensuelle',
+      amount: 5000, cycleId: firstClass.$1,
+      validFrom: DateTime(2026, 10, 1));
+    final dues = await finance.dues(unpaidOnly: true);
+    expect(dues.length, greaterThanOrEqualTo(2));
+
+    final today = DateTime.now();
+    final day = DateTime(today.year, today.month, today.day);
+    final next = day.add(const Duration(days: 30)).toIso8601String();
+    for (final due in dues) {
+      await AppDatabase.instance.db.update(
+        'dues', {'due_date': next},
+        where: 'id = ?', whereArgs: [due.id]);
+    }
+    final dueToday = dues[0];
+    final overdue = dues.firstWhere((d) => d.studentId != dueToday.studentId);
+    await AppDatabase.instance.db.update(
+      'dues', {'due_date': day.toIso8601String()},
+      where: 'id = ?', whereArgs: [dueToday.id]);
+    await AppDatabase.instance.db.update(
+      'dues', {'due_date': day.subtract(const Duration(days: 1)).toIso8601String()},
+      where: 'id = ?', whereArgs: [overdue.id]);
+
+    final rec = RecoveryRepository(AppDatabase.instance);
+    final late = await rec.cases();
+    expect(late.any((item) => item.dueId == dueToday.id), isFalse);
+    expect(late.any((item) => item.dueId == overdue.id), isTrue);
+    final selected = await rec.cases(
+      classroomId: overdue.studentId == dueToday.studentId
+          ? firstClass.$2 : otherClass.$2);
+    expect(selected.any((item) => item.dueId == overdue.id), isTrue);
+
+    final aging = await ReportRepository(AppDatabase.instance).agingReport();
+    final totalLate = aging.fold<int>(
+      0, (sum, row) => sum + ((row['solde'] as num?)?.toInt() ?? 0));
+    expect(totalLate, 5000);
+  });
+
+  test('erreur de saisie ne laisse pas une rubrique orpheline', () async {
+    final target = await createClass('S2');
+    await expectLater(
+      finance.createFeeWithTariff(
+        name: 'Frais invalides', periodicity: 'mensuelle', amount: 0,
+        cycleId: target.$1), throwsArgumentError);
+    expect(await finance.feeCategories(), isEmpty);
+    expect(await finance.feeGrid(), isEmpty);
+    await finance.createFeeWithTariff(
+      name: 'Frais uniques', periodicity: 'unique', amount: 2000,
+      cycleId: target.$1, validFrom: DateTime(2026, 10, 1));
+    await expectLater(
+      finance.createFeeWithTariff(
+        name: 'Frais uniques', periodicity: 'unique', amount: 2000,
+        cycleId: target.$1), throwsStateError);
+    expect((await finance.feeCategories()).length, 1);
+    expect((await finance.feeGrid()).length, 1);
+  });
+
+  test('une rubrique peut recevoir des tarifs sur plusieurs classes', () async {
+    final a = await createClass('ClasseA');
+    final b = await createClass('ClasseB');
+    final c = await createClass('ClasseC');
+    await finance.configureFeeForTargets(
+      name: 'Scolarité mutualisée', periodicity: 'mensuelle',
+      amount: 15000, classroomIds: [a.$2, b.$2],
+      validFrom: DateTime(2026, 10, 1));
+    final fees = await finance.feeCategories();
+    expect(fees, hasLength(1));
+    expect((await finance.feeGrid()), hasLength(2));
+    await finance.configureFeeForTargets(
+      existingFeeId: fees.single.id,
+      name: fees.single.name, periodicity: fees.single.periodicity,
+      amount: 15000, classroomIds: [c.$2],
+      validFrom: DateTime(2026, 10, 1));
+    expect((await finance.feeCategories()), hasLength(1));
+    expect((await finance.feeGrid()), hasLength(3));
+
+    await expectLater(finance.configureFeeForTargets(
+      existingFeeId: fees.single.id,
+      name: fees.single.name, periodicity: fees.single.periodicity,
+      amount: 15000, classroomIds: [a.$2, b.$2],
+      validFrom: DateTime(2026, 10, 1)), throwsStateError);
+    expect((await finance.feeGrid()), hasLength(3));
+  });
+
   test('une génération mensuelle ignore les rubriques annuelles', () async {
     final target = await createClass('Test-A');
     await students.add(
@@ -97,20 +207,16 @@ void main() {
       validFrom: validFrom,
     );
 
-    final created = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
-    );
-    expect(created, 1);
     final dues = await finance.dues();
-    expect(dues, hasLength(1));
-    expect(dues.single.feeName, 'Scolarité');
-    expect(dues.single.amountDue, 20000);
+    expect(dues, hasLength(10)); // 9 mensualités + 1 inscription annuelle.
+    expect(dues.where((d) => d.feeName == 'Scolarité'), hasLength(9));
+    expect(dues.where((d) => d.feeName == 'Inscription annuelle'), hasLength(1));
+    expect(dues.where((d) => d.feeName == 'Scolarité')
+      .every((d) => d.amountDue == 20000), isTrue);
   });
 
 
-  test('la date de référence choisit le bon tarif même si la date limite est antérieure', () async {
+  test('une date limite avant la période est refusée sans écriture', () async {
     final target = await createClass('Test-Reference');
     final studentId = await students.add(
       firstName: 'Référence',
@@ -132,15 +238,16 @@ void main() {
       validFrom: DateTime(2026, 10, 1),
     );
 
-    final created = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      referenceDate: DateTime(2026, 10, 1),
-      dueDate: DateTime(2026, 9, 25),
+    await expectLater(
+      finance.generateDues(
+        periodKey: '2026-10',
+        periodicity: 'mensuelle',
+        referenceDate: DateTime(2026, 10, 1),
+        dueDate: DateTime(2026, 9, 25),
+      ),
+      throwsA(isA<StateError>()),
     );
-
-    expect(created, 1);
-    expect((await finance.dues()).single.amountDue, 22000);
+    expect((await finance.dues()).length, 9);
   });
 
   test('un forfait individuel remplace le tarif standard', () async {
@@ -154,12 +261,6 @@ void main() {
 
     await finance.addFeeCategory(name: 'Scolarité', periodicity: 'mensuelle');
     final fee = (await finance.feeCategories()).single;
-    await finance.addFeeGrid(
-      feeId: fee.id,
-      cycleId: target.$1,
-      amount: 20000,
-      validFrom: DateTime(2026, 8, 1),
-    );
     await finance.createPackage(
       type: 'individual',
       feeId: fee.id,
@@ -168,15 +269,13 @@ void main() {
       reason: 'Bourse',
       validFrom: DateTime(2026, 9, 1),
     );
-
-    await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
+    await finance.addFeeGrid(
+      feeId: fee.id, cycleId: target.$1,
+      amount: 20000, validFrom: DateTime(2026, 8, 1),
     );
     final dues = await finance.dues();
-    expect(dues, hasLength(1));
-    expect(dues.single.amountDue, 12000);
+    expect(dues, hasLength(9));
+    expect(dues.every((d) => d.amountDue == 12000), isTrue);
   });
 
 
@@ -231,12 +330,6 @@ void main() {
 
     await finance.addFeeCategory(name: 'Scolarité', periodicity: 'mensuelle');
     final fee = (await finance.feeCategories()).single;
-    await finance.addFeeGrid(
-      feeId: fee.id,
-      cycleId: target.$1,
-      amount: 20000,
-      validFrom: DateTime(2026, 8, 1),
-    );
     await finance.createPackage(
       type: 'family',
       feeId: fee.id,
@@ -245,17 +338,13 @@ void main() {
       reason: 'Forfait fratrie',
       validFrom: DateTime(2026, 9, 1),
     );
-
-    final created = await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
+    await finance.addFeeGrid(
+      feeId: fee.id, cycleId: target.$1,
+      amount: 20000, validFrom: DateTime(2026, 8, 1),
     );
-    expect(created, 1);
     final dues = await finance.dues();
-    expect(dues, hasLength(1));
-    expect(dues.single.amountDue, 30000);
-    expect(dues.single.studentName, contains('Famille'));
+    expect(dues, hasLength(9));
+    expect(dues.every((d) => d.amountDue == 30000), isTrue);
   });
 
   test('annuler un paiement rétablit exactement le solde', () async {
@@ -274,12 +363,6 @@ void main() {
       amount: 20000,
       validFrom: DateTime(2026, 8, 1),
     );
-    await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
-    );
-
     await cash.open(accountId: 'main_cash', openingAmount: 0);
     final receipt = await finance.recordPayment(
       studentId: student.id,
@@ -287,7 +370,7 @@ void main() {
       method: 'Espèces',
       cashAccountId: 'main_cash',
     );
-    var due = (await finance.dues()).single;
+    var due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 7000);
     expect(due.status, 'partial');
 
@@ -296,10 +379,10 @@ void main() {
     );
     await finance.cancelPayment(paymentId: payment.id, reason: 'Erreur de saisie');
 
-    due = (await finance.dues()).single;
+    due = (await finance.dues()).firstWhere((d) => d.periodKey == '2026-10');
     expect(due.amountPaid, 0);
     expect(due.status, 'unpaid');
-    expect(await finance.outstandingForStudent(student.id), 20000);
+    expect(await finance.outstandingForStudent(student.id), 180000);
     final report = await integrity.run();
     // This scenario deliberately creates a student without the required
     // administrative documents, so the global report can legitimately flag
@@ -326,6 +409,85 @@ void main() {
     );
   });
 
+  test('caisse fermée : paiement refusé sans écriture, puis accepté après ouverture', () async {
+    final target = await createClass('CaisseControle');
+    await students.add(firstName: 'Marie', lastName: 'Caisse',
+      classroomId: target.$2);
+    final student = (await students.list()).single;
+    await finance.createFeeWithTariff(
+      name: 'Scolarité contrôlée', periodicity: 'mensuelle',
+      amount: 15000, cycleId: target.$1,
+      validFrom: DateTime(2026, 10, 1),
+    );
+    final due = (await finance.dues()).firstWhere(
+      (item) => item.periodKey == '2026-10',
+    );
+
+    expect(await cash.openSession('main_cash'), isNull);
+    await expectLater(
+      finance.recordPayment(
+        studentId: student.id,
+        amount: 5000,
+        method: 'Espèces',
+        cashAccountId: 'main_cash',
+        dueIds: [due.id],
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(await finance.recentPayments(), isEmpty);
+    expect((await finance.dues()).firstWhere(
+      (item) => item.id == due.id).amountPaid, 0);
+
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    expect(await cash.openSession('main_cash'), isNotNull);
+    final receipt = await finance.recordPayment(
+      studentId: student.id,
+      amount: 5000,
+      method: 'Espèces',
+      cashAccountId: 'main_cash',
+      dueIds: [due.id],
+    );
+    expect((await finance.recentPayments()).single.receiptNumber, receipt);
+    expect(await finance.paymentReceiptLines(receipt), hasLength(1));
+    expect((await finance.dues()).firstWhere(
+      (item) => item.id == due.id).amountPaid, 5000);
+  });
+
+  test('réessayer le même encaissement ne crée ni doublon ni nouvelle allocation', () async {
+    final target = await createClass('Idem');
+    await students.add(firstName: 'Alice', lastName: 'Validation',
+      classroomId: target.$2);
+    final student = (await students.list()).single;
+    await finance.addFeeCategory(name: 'Scolarité sécurisée',
+      periodicity: 'mensuelle');
+    final fee = (await finance.feeCategories()).single;
+    await finance.addFeeGrid(
+      feeId: fee.id, cycleId: target.$1, amount: 15000,
+      validFrom: DateTime(2026, 10, 1));
+    final october = (await finance.dues()).firstWhere(
+      (d) => d.periodKey == '2026-10');
+    await cash.open(accountId: 'main_cash', openingAmount: 0);
+    const operation = 'pay-idempotent-20261011-test';
+    final first = await finance.recordPayment(
+      studentId: student.id, amount: 5000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash',
+      operationId: operation);
+    final second = await finance.recordPayment(
+      studentId: student.id, amount: 5000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash',
+      operationId: operation);
+    expect(second, first);
+    expect((await finance.recentPayments()).where(
+      (p) => p.receiptNumber == first), hasLength(1));
+    expect((await finance.paymentReceiptLines(first)), hasLength(1));
+    expect((await finance.dues()).firstWhere(
+      (d) => d.id == october.id).amountPaid, 5000);
+    await expectLater(finance.recordPayment(
+      studentId: student.id, amount: 7000, method: 'Espèces',
+      dueIds: [october.id], cashAccountId: 'main_cash',
+      operationId: operation), throwsStateError);
+  });
+
   test('un paiement refuse une échéance appartenant à un autre élève', () async {
     final target = await createClass('Test-Payeur');
     await students.add(firstName: 'Alice', lastName: 'A', classroomId: target.$2);
@@ -341,11 +503,6 @@ void main() {
       cycleId: target.$1,
       amount: 10000,
       validFrom: DateTime(2026, 10, 1),
-    );
-    await finance.generateDues(
-      periodKey: '2026-10',
-      periodicity: 'mensuelle',
-      dueDate: DateTime(2026, 10, 10),
     );
     final bobDue = (await finance.dues()).firstWhere((d) => d.studentId == bob.id);
     await cash.open(accountId: 'main_cash', openingAmount: 0);

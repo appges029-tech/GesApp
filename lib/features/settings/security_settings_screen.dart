@@ -1,8 +1,7 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import '../../core/session/business_write_guard.dart';
+import '../../core/security/manager_password_policy.dart';
 import '../../core/session/operator_session.dart';
 import '../../services/tenant_cloud_service.dart';
 
@@ -17,6 +16,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _managers = const [];
   String? _error;
+  bool _resetInProgress = false;
 
   @override
   void initState() {
@@ -46,11 +46,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
     }
   }
 
-  String _temporaryPassword() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#';
-    final random = Random.secure();
-    return List.generate(12, (_) => chars[random.nextInt(chars.length)]).join();
-  }
+  String _temporaryPassword() => ManagerPasswordPolicy.generateTemporary();
 
   Future<void> _createManager() async {
     BusinessWriteGuard.ensureTenantAdmin();
@@ -150,33 +146,84 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   Future<void> _resetPassword(Map<String, dynamic> manager) async {
-    final password = TextEditingController(text: _temporaryPassword());
-    final ok = await showDialog<bool>(
+    if (_resetInProgress || !mounted) return;
+    String proposed = _temporaryPassword();
+    bool obscured = true;
+    bool invalid = false;
+    final chosen = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Réinitialiser — ${manager['display_name']}'),
-        content: TextField(controller: password, decoration: const InputDecoration(labelText: 'Nouveau mot de passe temporaire')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Réinitialiser')),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, refresh) => AlertDialog(
+          title: Text('Réinitialiser — ${manager['display_name']}'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Le gestionnaire devra changer ce code lors de sa prochaine connexion en ligne.'),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: ValueKey(proposed),
+                initialValue: proposed,
+                obscureText: obscured,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: 'Mot de passe temporaire',
+                  errorText: invalid ? '10 caractères, majuscule, minuscule et chiffre requis' : null,
+                  suffixIcon: IconButton(
+                    tooltip: obscured ? 'Afficher' : 'Masquer',
+                    onPressed: () => refresh(() => obscured = !obscured),
+                    icon: Icon(obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                  ),
+                ),
+                onChanged: (value) { proposed = value; if (invalid) refresh(() => invalid = false); },
+              ),
+              TextButton.icon(
+                onPressed: () => refresh(() { proposed = _temporaryPassword(); invalid = false; }),
+                icon: const Icon(Icons.casino_outlined),
+                label: const Text('Générer un autre code'),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
+            FilledButton(
+              onPressed: () {
+                if (!ManagerPasswordPolicy.isStrong(proposed)) {
+                  refresh(() => invalid = true);
+                  return;
+                }
+                Navigator.pop(dialogContext, proposed);
+              },
+              child: const Text('Réinitialiser'),
+            ),
+          ],
+        ),
       ),
     );
-    if (ok == true) {
-      try {
-        await TenantCloudService.instance.resetManagerPassword(manager['id'].toString(), password.text);
-        if (!mounted) return;
-        final secret = password.text;
-        await showDialog<void>(context: context, builder: (context) => AlertDialog(
+    if (chosen == null || !mounted) return;
+    setState(() => _resetInProgress = true);
+    try {
+      await TenantCloudService.instance.resetManagerPassword(manager['id'].toString(), chosen);
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Mot de passe réinitialisé'),
-          content: SelectableText(secret, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-          actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer'))],
-        ));
-      } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Transmettez ce code de façon confidentielle :'),
+            const SizedBox(height: 12),
+            SelectableText(chosen, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            const Text('Les appareils totalement hors ligne devront se reconnecter pour recevoir le changement.'),
+          ]),
+          actions: [FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('J’ai noté le code'))],
+        ),
+      );
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Réinitialisation impossible : $error')));
+    } finally {
+      if (mounted) setState(() => _resetInProgress = false);
     }
-    password.dispose();
   }
 
   @override
@@ -217,6 +264,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                   subtitle: Text('@${manager['username'] ?? '—'}${manager['active'] == true ? '' : ' · Désactivé'}${manager['must_change_password'] == true ? ' · Mot de passe temporaire' : ''}'),
                   trailing: PopupMenuButton<String>(
                     onSelected: (value) {
+                      if (_resetInProgress) return;
                       if (value == 'reset') _resetPassword(manager);
                       if (value == 'toggle') _toggle(manager);
                     },

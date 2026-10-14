@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/platform/download_service.dart';
 import '../../core/platform/pdf_output_service.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/widgets/stored_image.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/student.dart';
@@ -170,7 +171,7 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                         Row(
                           children: [
                             GestureDetector(
-                              onTap: _busy ? null : () => _photo(s),
+                              onTap: _busy || OperatorSession.isReadOnly ? null : () => _photo(s),
                               child: ClipOval(
                                 child: StoredImage(
                                   reference: s.photoPath,
@@ -219,14 +220,15 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                         _line('Téléphone', s.guardianPhone ?? '—'),
                         _line('Famille', s.familyName ?? '—'),
                         const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentGuardiansScreen(studentId: s.id, studentName: s.fullName))),
-                            icon: const Icon(Icons.supervisor_account_outlined),
-                            label: const Text('Gérer les responsables'),
+                        if (!OperatorSession.isReadOnly)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentGuardiansScreen(studentId: s.id, studentName: s.fullName))),
+                              icon: const Icon(Icons.supervisor_account_outlined),
+                              label: const Text('Gérer les responsables'),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -246,6 +248,10 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 10),
+                        if (s.paymentStatus == 'pending_configuration')
+                          const Text('Aucun tarif applicable pour cet élève. Vérifiez ses frais et son inscription.', style: TextStyle(color: Colors.deepOrange)),
+                        if (s.paymentStatus == 'needs_review')
+                          const Text('Situation à actualiser après modification du dossier.', style: TextStyle(color: Colors.deepOrange)),
                         _line('Attendu', formatXaf(b.finance.expected)),
                         _line('Payé', formatXaf(b.finance.paid)),
                         _line('Reste', formatXaf(b.finance.outstanding)),
@@ -288,11 +294,12 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                                     ?.copyWith(fontWeight: FontWeight.w800),
                               ),
                             ),
-                            IconButton(
-                              tooltip: 'Ajouter une pièce',
-                              onPressed: _busy ? null : () => _addDocument(s),
-                              icon: const Icon(Icons.note_add_outlined),
-                            ),
+                            if (!OperatorSession.isReadOnly)
+                              IconButton(
+                                tooltip: 'Ajouter une pièce',
+                                onPressed: _busy ? null : () => _addDocument(s),
+                                icon: const Icon(Icons.note_add_outlined),
+                              ),
                           ],
                         ),
                         FutureBuilder<Map<String,Object?>>(
@@ -325,10 +332,12 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                                 '${d.addedAt.toIso8601String().split('T').first}${d.verificationCode == null ? '' : ' · ${d.verificationCode}'}${d.isVerificationValid ? '' : ' · INVALIDÉ'}',
                               ),
                               onTap: () => _viewDoc(d),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline),
-                                onPressed: () => _deleteDoc(d),
-                              ),
+                              trailing: OperatorSession.isReadOnly
+                                  ? null
+                                  : IconButton(
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: () => _deleteDoc(d),
+                                    ),
                             ),
                           ),
                       ],
@@ -339,7 +348,7 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                 Card(
                   child: ExpansionTile(
                     title: const Text(
-                      'Échéances',
+                      'Périodes de paiement',
                       style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: Text('${b.dues.length} ligne(s)'),
@@ -347,7 +356,7 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                       if (b.dues.isEmpty)
                         const Padding(
                           padding: EdgeInsets.all(16),
-                          child: Text('Aucune échéance.'),
+                          child: Text('Aucune période de paiement.'),
                         )
                       else
                         ...b.dues.map(
@@ -443,39 +452,41 @@ class _StudentDetailScreenState extends ConsumerState<StudentDetailScreen>{
                   ),
                 ),
                 const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _busy ? null : () async {
-                    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => StudentFormScreen(student: s)));
-                    if (changed == true) { ref.invalidate(studentsProvider); _reload(); }
-                  },
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Modifier les informations'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _busy ? null : () => _reEnroll(s),
-                  icon: const Icon(Icons.school_outlined),
-                  label: const Text('Réinscrire pour l’année active'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : () => _changeClassroom(s),
-                  icon: const Icon(Icons.swap_horiz),
-                  label: const Text('Changer de classe'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : () => _changeFamily(s),
-                  icon: const Icon(Icons.family_restroom),
-                  label: const Text('Rattacher / changer de famille'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : () => _changeStatus(s),
-                  icon: const Icon(Icons.manage_accounts_outlined),
-                  label: const Text('Changer le statut'),
-                ),
-                const SizedBox(height: 8),
+                if (!OperatorSession.isReadOnly) ...[
+                  FilledButton.icon(
+                    onPressed: _busy ? null : () async {
+                      final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => StudentFormScreen(student: s)));
+                      if (changed == true) { ref.invalidate(studentsProvider); _reload(); }
+                    },
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Modifier les informations'),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : () => _reEnroll(s),
+                    icon: const Icon(Icons.school_outlined),
+                    label: const Text('Réinscrire pour l’année active'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => _changeClassroom(s),
+                    icon: const Icon(Icons.swap_horiz),
+                    label: const Text('Changer de classe'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => _changeFamily(s),
+                    icon: const Icon(Icons.family_restroom),
+                    label: const Text('Rattacher / changer de famille'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => _changeStatus(s),
+                    icon: const Icon(Icons.manage_accounts_outlined),
+                    label: const Text('Changer le statut'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 OutlinedButton.icon(
                   onPressed: _busy ? null : () => _print(b),
                   icon: const Icon(Icons.picture_as_pdf_outlined),

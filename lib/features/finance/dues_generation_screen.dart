@@ -223,6 +223,9 @@ class _DuesGenerationScreenState extends ConsumerState<DuesGenerationScreen> {
                 if (picked != null && mounted) {
                   setState(() {
                     _referenceMonth = DateTime(picked.year, picked.month, 1);
+                    final last = DateTime(picked.year, picked.month + 1, 0).day;
+                    _dueDate = DateTime(picked.year, picked.month,
+                        _dueDate.day > last ? last : _dueDate.day);
                     _preview = null;
                   });
                 }
@@ -309,7 +312,7 @@ class _DuesGenerationScreenState extends ConsumerState<DuesGenerationScreen> {
           ],
           const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: _busy || _preview == null ? null : _generate,
+            onPressed: _busy || _preview == null || OperatorSession.isReadOnly ? null : _generate,
             icon: _busy ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.auto_awesome_outlined),
             label: Text(_busy ? 'Traitement…' : 'Confirmer et créer le lot'),
           ),

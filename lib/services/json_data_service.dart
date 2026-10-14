@@ -5,10 +5,25 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common/sqlite_api.dart';
+
+import '../core/platform/platform_database.dart';
 
 import '../core/session/business_write_guard.dart';
 import 'json_schema.dart';
+
+Future<Database> _openGesAppDatabase(
+  String path, {
+  bool readOnly = false,
+}) =>
+    platformDatabaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        readOnly: readOnly,
+        singleInstance: false,
+        onConfigure: configurePlatformDatabaseConnection,
+      ),
+    );
 
 class JsonExportResult {
   const JsonExportResult({
@@ -45,7 +60,7 @@ class JsonDataService {
     if (!trustedSystem) BusinessWriteGuard.ensureSensitiveDataAccess('export JSON');
     Database? db;
     try {
-      db = await openDatabase(databasePath, readOnly: true, singleInstance: false);
+      db = await _openGesAppDatabase(databasePath, readOnly: true);
       final tableNames = await _userTables(db);
       final tables = <String, Object?>{};
       var rowCount = 0;
@@ -124,7 +139,7 @@ class JsonDataService {
 
     Database? candidate;
     try {
-      candidate = await openDatabase(temp.path, singleInstance: false);
+      candidate = await _openGesAppDatabase(temp.path);
       await candidate.execute('PRAGMA foreign_keys = OFF');
       final currentTables = await _userTables(candidate);
       final missingLocalSchema = gesAppPortableTables.where((table) => !currentTables.contains(table)).toList();
@@ -145,6 +160,14 @@ class JsonDataService {
         sourceTables: rawTables,
         tableManifest: decoded['table_manifest'],
       );
+      final legacyBillingUpgrade = sourceVersion == 29 && currentVersion == 30;
+      if (legacyBillingUpgrade) {
+        final existingRules = await candidate.rawQuery(
+          'SELECT COUNT(*) AS total FROM billing_calendar_rules');
+        if ((existingRules.first['total'] as int) > 0) {
+          throw StateError('Restauration V29 refusée : ce poste possède déjà des règles de facturation V30. Exportez sa sauvegarde avant toute reprise historique.');
+        }
+      }
 
       await candidate.transaction((txn) async {
         // Les FK sont désactivées uniquement sur la base temporaire. Toutes les
@@ -155,7 +178,9 @@ class JsonDataService {
         for (final table in currentTables) {
           final rawRows = table == 'app_users' && preservedAppUsers.isNotEmpty
               ? preservedAppUsers
-              : rawTables[table];
+              : (legacyBillingUpgrade &&
+                 const {'billing_calendar_rules','student_billing_state'}.contains(table)
+                  ? const <Object?>[] : rawTables[table]);
           if (rawRows is! List) throw StateError('Table JSON invalide : $table.');
           for (final rawRow in rawRows) {
             if (rawRow is! Map) throw StateError('Ligne JSON invalide dans $table.');
@@ -424,7 +449,7 @@ class JsonDataService {
     Database? db;
     var swapped = false;
     try {
-      db = await openDatabase(databasePath, singleInstance: false);
+      db = await _openGesAppDatabase(databasePath);
       for (final raw in mediaValue) {
         if (raw is! Map) continue;
         final table = raw['table']?.toString();
@@ -463,7 +488,7 @@ class JsonDataService {
     await root.create(recursive: true);
     Database? db;
     try {
-      db = await openDatabase(databasePath, singleInstance: false);
+      db = await _openGesAppDatabase(databasePath);
 
       Future<void> materialize({
         required String table,
@@ -534,7 +559,7 @@ class JsonDataService {
   Future<void> _validateCandidate(String path) async {
     Database? db;
     try {
-      db = await openDatabase(path, readOnly: true, singleInstance: false);
+      db = await _openGesAppDatabase(path, readOnly: true);
       final integrity = await db.rawQuery('PRAGMA integrity_check');
       final messages = integrity.expand((r) => r.values).map((v) => v.toString().toLowerCase()).toList();
       if (messages.length != 1 || messages.single != 'ok') throw StateError('La base reconstruite depuis le JSON est endommagée.');

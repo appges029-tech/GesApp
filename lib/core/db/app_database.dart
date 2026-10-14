@@ -20,11 +20,15 @@ class AppDatabase {
   Future<void> initialize() async {
     if (_db != null) return;
     final path = await databasePath;
+    await preparePlatformDatabase(path);
     _db = await platformDatabaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 29,
+        version: 30,
         onConfigure: (database) async {
+          // Doit être le tout premier accès à la connexion : sur Windows
+          // release, la clé SQLCipher doit être appliquée avant toute lecture.
+          await configurePlatformDatabaseConnection(database);
           await database.execute('PRAGMA foreign_keys = ON');
           try {
             await database.rawQuery('PRAGMA journal_mode = TRUNCATE');
@@ -682,6 +686,38 @@ class AppDatabase {
           await database.execute("UPDATE assets SET status='out_of_service' WHERE status='retired'");
           await _seedAccountingDefaults(database);
           await _ensureFinancialInvariantTriggers(database);
+        }
+        if (oldVersion < 30) {
+          // V30 : calendrier annuel par rubrique et état de génération par élève.
+
+          await database.execute('''CREATE TABLE IF NOT EXISTS billing_calendar_rules(
+            id TEXT PRIMARY KEY,
+            school_year_id TEXT NOT NULL,
+            fee_id TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31),
+            admission_policy TEXT NOT NULL DEFAULT 'current_period'
+              CHECK(admission_policy IN ('current_period','next_period')),
+            grace_days INTEGER NOT NULL DEFAULT 0 CHECK(grace_days BETWEEN 0 AND 90),
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(school_year_id,fee_id),
+            FOREIGN KEY(school_year_id) REFERENCES school_years(id),
+            FOREIGN KEY(fee_id) REFERENCES fee_categories(id)
+          )''');
+          await database.execute('''CREATE TABLE IF NOT EXISTS student_billing_state(
+            student_id TEXT NOT NULL,
+            school_year_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('ready','pending_configuration','needs_review')),
+            details TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(student_id,school_year_id),
+            FOREIGN KEY(student_id) REFERENCES students(id),
+            FOREIGN KEY(school_year_id) REFERENCES school_years(id)
+          )''');
+          await database.execute('CREATE INDEX IF NOT EXISTS idx_billing_state_status ON student_billing_state(school_year_id,status)');
         }
       },
       ),
@@ -1820,6 +1856,34 @@ class AppDatabase {
       FOREIGN KEY(from_account_id) REFERENCES cash_accounts(id),
       FOREIGN KEY(to_account_id) REFERENCES cash_accounts(id)
     )''',
+    '''CREATE TABLE billing_calendar_rules(
+      id TEXT PRIMARY KEY,
+      school_year_id TEXT NOT NULL,
+      fee_id TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31),
+      admission_policy TEXT NOT NULL DEFAULT 'current_period'
+        CHECK(admission_policy IN ('current_period','next_period')),
+      grace_days INTEGER NOT NULL DEFAULT 0 CHECK(grace_days BETWEEN 0 AND 90),
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(school_year_id,fee_id),
+      FOREIGN KEY(school_year_id) REFERENCES school_years(id),
+      FOREIGN KEY(fee_id) REFERENCES fee_categories(id)
+    )''',
+    '''CREATE TABLE student_billing_state(
+      student_id TEXT NOT NULL,
+      school_year_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('ready','pending_configuration','needs_review')),
+      details TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(student_id,school_year_id),
+      FOREIGN KEY(student_id) REFERENCES students(id),
+      FOREIGN KEY(school_year_id) REFERENCES school_years(id)
+    )''',
+    '''CREATE INDEX idx_billing_state_status ON student_billing_state(school_year_id,status)''',
     '''CREATE TABLE billing_batches(
       id TEXT PRIMARY KEY,
       school_year_id TEXT NOT NULL,

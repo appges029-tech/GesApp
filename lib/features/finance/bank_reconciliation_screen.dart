@@ -4,6 +4,12 @@ import '../../core/layout/responsive_layout.dart';
 
 import '../../core/providers/repository_providers.dart';
 import '../../core/utils/formatters.dart';
+import 'package:pdf/pdf.dart';
+import '../../core/platform/pdf_output_service.dart';
+import '../../services/document_identity.dart';
+import '../../services/document_number_service.dart';
+import '../../services/excel_export_service.dart';
+import '../../services/report_pdf_service.dart';
 
 class BankReconciliationScreen extends ConsumerStatefulWidget {
   const BankReconciliationScreen({super.key});
@@ -16,6 +22,57 @@ class BankReconciliationScreen extends ConsumerStatefulWidget {
 class _BankReconciliationScreenState
     extends ConsumerState<BankReconciliationScreen> {
   int _refresh = 0;
+  bool _exporting = false;
+
+  Future<void> _exportReconciliations({required bool pdf}) async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final data = await ref.read(accountingRepositoryProvider).reconciliations();
+      if (data.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun rapprochement à exporter.')));
+        return;
+      }
+      const headers = ['Compte', 'Début', 'Fin', 'Solde relevé',
+        'Solde comptable', 'Écart', 'Statut'];
+      final rows = data.map((r) => [
+        '${r['account_name'] ?? ''}',
+        '${r['period_start'] ?? ''}'.split('T').first,
+        '${r['period_end'] ?? ''}'.split('T').first,
+        formatXaf((r['statement_balance'] as num?) ?? 0),
+        formatXaf((r['book_balance'] as num?) ?? 0),
+        formatXaf((r['difference'] as num?) ?? 0),
+        r['status'] == 'completed' ? 'Validé' : 'Brouillon',
+      ]).toList(growable: false);
+      if (pdf) {
+        final establishment = await ref.read(establishmentProvider.future);
+        final identity = await DocumentIdentity.fromEstablishment(establishment);
+        final registry = DocumentNumberService();
+        final reference = await registry.getOrCreate(
+          type: 'RAP', entityId: 'rapprochements:${DateTime.now().microsecondsSinceEpoch}');
+        final bytes = await ReportPdfService().table(
+          title: 'État des rapprochements bancaires',
+          subtitle: 'Contrôles de rapprochement enregistrés ; les brouillons ne sont pas des rapprochements validés.',
+          headers: headers, rows: rows, identity: identity, reference: reference,
+          pageFormat: PdfPageFormat.a4.landscape);
+        await registry.recordFingerprint(reference: reference, bytes: bytes);
+        await outputPdf(bytes, fileName: 'Rapprochements_$reference.pdf');
+      } else {
+        await ExcelExportService().export(
+          fileName: 'Etat_rapprochements_bancaires', headers: headers, rows: rows);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(pdf ? 'État des rapprochements PDF généré.'
+            : 'État des rapprochements Excel généré.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export rapprochements impossible : $error')));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
 
   Future<void> _create() async {
     final repo = ref.read(accountingRepositoryProvider);
@@ -206,6 +263,16 @@ class _BankReconciliationScreenState
         appBar: AppBar(
           title: const Text('Rapprochements'),
           actions: [
+            IconButton(
+              onPressed: _exporting ? null : () => _exportReconciliations(pdf: true),
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              tooltip: 'État des rapprochements PDF',
+            ),
+            IconButton(
+              onPressed: _exporting ? null : () => _exportReconciliations(pdf: false),
+              icon: const Icon(Icons.table_view_outlined),
+              tooltip: 'État des rapprochements Excel',
+            ),
             IconButton(
               onPressed: _create,
               icon: const Icon(Icons.add),

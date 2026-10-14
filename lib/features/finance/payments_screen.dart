@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/sensitive_authorization_dialog.dart';
 import '../../core/windows/windows_page_scaffold.dart';
@@ -285,10 +286,12 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>{
                                           if (v == 'refund') unawaited(_refund(item));
                                           if (v == 'cancel') unawaited(_cancel(item));
                                         },
-                                        itemBuilder: (_) => const [
-                                          PopupMenuItem(value: 'print', child: Text('Réimprimer')),
-                                          PopupMenuItem(value: 'refund', child: Text('Rembourser')),
-                                          PopupMenuItem(value: 'cancel', child: Text('Annuler')),
+                                        itemBuilder: (_) => [
+                                          const PopupMenuItem(value: 'print', child: Text('Réimprimer')),
+                                          if (!OperatorSession.isReadOnly)
+                                            const PopupMenuItem(value: 'refund', child: Text('Rembourser')),
+                                          if (!OperatorSession.isReadOnly)
+                                            const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                                         ],
                                       ),
                                   ],
@@ -315,9 +318,12 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen>{
             _load(reset: true);
           },
         ),
-        if (desktop && !_showCancelled) WindowsCommandButton(icon: Icons.add_card, label: 'Paiement', primary: true, onPressed: _newPayment),
+        if (desktop && !_showCancelled && !OperatorSession.isReadOnly)
+          WindowsCommandButton(icon: Icons.add_card, label: 'Paiement', primary: true, onPressed: _newPayment),
       ],
-      floatingActionButton: desktop || _showCancelled ? null : FloatingActionButton.extended(onPressed: _newPayment, icon: const Icon(Icons.add_card), label: const Text('Paiement')),
+      floatingActionButton: desktop || _showCancelled || OperatorSession.isReadOnly
+          ? null
+          : FloatingActionButton.extended(onPressed: _newPayment, icon: const Icon(Icons.add_card), label: const Text('Paiement')),
       body: body,
     );
   }
@@ -349,7 +355,9 @@ class _PaymentsDesktopList extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return WindowsPanel(
       padding: EdgeInsets.zero,
-      child: Column(
+      child: WindowsAdaptiveTable(
+        minWidth: 1080,
+        child: Column(
         children: [
           Container(
             height: 40,
@@ -398,10 +406,12 @@ class _PaymentsDesktopList extends StatelessWidget {
                                 if (value == 'refund') onRefund(item);
                                 if (value == 'cancel') onCancel(item);
                               },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'print', child: Text('Réimprimer')),
-                                PopupMenuItem(value: 'refund', child: Text('Rembourser')),
-                                PopupMenuItem(value: 'cancel', child: Text('Annuler')),
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(value: 'print', child: Text('Réimprimer')),
+                                if (!OperatorSession.isReadOnly)
+                                  const PopupMenuItem(value: 'refund', child: Text('Rembourser')),
+                                if (!OperatorSession.isReadOnly)
+                                  const PopupMenuItem(value: 'cancel', child: Text('Annuler')),
                               ],
                             ),
                     ),
@@ -411,6 +421,7 @@ class _PaymentsDesktopList extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

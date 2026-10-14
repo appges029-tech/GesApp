@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../core/layout/responsive_layout.dart';
 import '../core/session/operator_session.dart';
@@ -35,6 +36,8 @@ class _NavEntry {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+  // Load modules on first visit; keep their state mounted afterwards.
+  final Set<int> _visitedModules = {0};
 
   @override
   void initState() {
@@ -95,41 +98,52 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Future<void> _showMore(List<_NavEntry> entries) async {
     final selected = await showModalBottomSheet<int>(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Tous les modules', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: MediaQuery.sizeOf(context).width >= 520 ? 4 : 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 2.25,
-              children: [3, 4, 5, 7]
-                  .map((index) => InkWell(
+      builder: (sheetContext) {
+        final size = MediaQuery.sizeOf(sheetContext);
+        final width = size.width;
+        final columns = width >= 620 ? 4 : width >= 350 ? 2 : 1;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: size.height * .74),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tous les modules',
+                  style: Theme.of(sheetContext).textTheme.titleLarge),
+                const SizedBox(height: 14),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: columns,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: columns == 1 ? 4.0 : columns == 2 ? 1.7 : 2.2,
+                  children: [3, 4, 5, 7].map((index) => InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => Navigator.pop(sheetContext, index),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        color: Theme.of(sheetContext).colorScheme.surfaceContainerLow,
                         borderRadius: BorderRadius.circular(16),
-                        onTap: () => Navigator.pop(context, index),
-                        child: Ink(
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surfaceContainerLow,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(entries[index].selectedIcon, color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 9),
-                              Flexible(child: Text(entries[index].label, style: const TextStyle(fontWeight: FontWeight.w700))),
-                            ],
-                          ),
+                        border: Border.all(
+                          color: Theme.of(sheetContext).colorScheme.outlineVariant),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(entries[index].selectedIcon,
+                              color: Theme.of(sheetContext).colorScheme.primary),
+                            const SizedBox(width: 6),
+                            Flexible(child: Text(entries[index].label,
+                              maxLines: 2, overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w700))),
+                          ],
                         ),
                       ))
                   .toList(),
@@ -161,44 +175,35 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                       'Mode Administrateur — consultation uniquement. Les données métier ne peuvent pas être modifiées.',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () async {
-                      await TenantCloudService.instance.signOut();
-                      // TenantAccessGate écoute onAuthStateChange et remonte
-                      // automatiquement l'écran de connexion. Ne pas forcer
-                      // une seconde navigation pendant la désactivation de
-                      // l'arbre Flutter.
-                    },
-                    icon: const Icon(Icons.logout, size: 18),
-                    label: const Text('Déconnexion'),
-                  ),
-                ],
-              ),
+                  )).toList(),
+                ),
+              ],
             ),
           ),
-        ),
-        Expanded(child: content),
-      ],
+        );
+      },
     );
+    if (selected != null && mounted) _select(selected);
   }
+
+  Widget _pageContent(List<Widget> pages) => IndexedStack(
+    index: _index,
+    children: [
+      for (var index = 0; index < pages.length; index++)
+        _visitedModules.contains(index)
+            ? pages[index]
+            : const SizedBox.shrink(),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
     final entries = _entries;
     if (_index >= entries.length) _index = 0;
     final pages = entries.map((e) => e.page).toList(growable: false);
-    final destinations = entries
-        .map((e) => NavigationDestination(icon: Icon(e.icon), selectedIcon: Icon(e.selectedIcon), label: e.label))
-        .toList(growable: false);
-
     return LayoutBuilder(builder: (context, constraints) {
       final desktop = constraints.maxWidth >= AppBreakpoints.tablet;
       if (!desktop) {
-        final mobileDestinations = [
-          for (final index in _mobileIndexes) destinations[index],
-          const NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Plus'),
-        ];
         final mobileSelected = _mobileIndexes.indexOf(_index);
         return Scaffold(
           body: _pageContent(pages),
@@ -241,14 +246,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       return Scaffold(
         body: Row(children: [
           SafeArea(
-            child: Container(
+            child: SizedBox(
               width: extended ? 250 : 88,
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [BoxShadow(color: AppColors.navy.withValues(alpha: .06), blurRadius: 24, offset: const Offset(6, 0))],
-              ),
-              child: Column(children: [
+              child: GlassCard(
+                padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+                quality: GlassQuality.standard,
+                child: Column(children: [
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: extended ? 10 : 4, vertical: 8),
                   child: Row(mainAxisAlignment: extended ? MainAxisAlignment.start : MainAxisAlignment.center, children: [
@@ -282,7 +285,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               ]),
             ),
           ),
-          VerticalDivider(width: 1, color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: Align(
               alignment: Alignment.topCenter,
@@ -311,74 +315,121 @@ class _WindowsNavigationPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final width = expanded ? WindowsUi.expandedPaneWidth : WindowsUi.compactPaneWidth;
+    final width =
+        expanded ? WindowsUi.expandedPaneWidth : WindowsUi.compactPaneWidth;
+
     return SafeArea(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+      child: SizedBox(
         width: width,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          border: Border(right: BorderSide(color: scheme.outlineVariant.withValues(alpha: .8))),
-        ),
-        child: Column(
-          children: [
-            SizedBox(
-              height: 72,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 10),
-                child: Row(
-                  mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.school_rounded, color: Colors.white, size: 21),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            border: Border(right: BorderSide(color: scheme.outlineVariant)),
+          ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            width: width,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 72,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: expanded ? 14 : 10,
                     ),
-                    if (expanded) ...[
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('GesApp', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                            Text('Gestion scolaire', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
-                          ],
+                    child: Row(
+                      mainAxisAlignment: expanded
+                          ? MainAxisAlignment.start
+                          : MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.school_rounded,
+                            color: Colors.white,
+                            size: 21,
+                          ),
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: .75)),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                children: [
-                  for (var i = 0; i < entries.length - 1; i++)
-                    _WindowsNavItem(
-                      entry: entries[i],
-                      expanded: expanded,
-                      selected: selectedIndex == i,
-                      onTap: () => onSelected(i),
+                        if (expanded) ...[
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'GesApp',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                Text(
+                                  'Gestion scolaire',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                ],
-              ),
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  color: scheme.outlineVariant.withValues(alpha: .75),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    children: [
+                      if (expanded)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                          child: Text('ESPACE DE TRAVAIL',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w700, letterSpacing: 1.1,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      for (var i = 0; i < entries.length - 1; i++)
+                        _WindowsNavItem(
+                          entry: entries[i],
+                          expanded: expanded,
+                          selected: selectedIndex == i,
+                          onTap: () => onSelected(i),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                  child: _WindowsNavItem(
+                    entry: entries.last,
+                    expanded: expanded,
+                    selected: selectedIndex == entries.length - 1,
+                    onTap: () => onSelected(entries.length - 1),
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
-              child: _WindowsNavItem(
-                entry: entries.last,
-                expanded: expanded,
-                selected: selectedIndex == entries.length - 1,
-                onTap: () => onSelected(entries.length - 1),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -402,7 +453,7 @@ class _WindowsNavItem extends StatelessWidget {
       child: Tooltip(
         message: expanded ? '' : entry.label,
         child: Material(
-          color: selected ? scheme.primaryContainer.withValues(alpha: .62) : Colors.transparent,
+          color: selected ? scheme.primaryContainer.withValues(alpha: .65) : Colors.transparent,
           borderRadius: BorderRadius.circular(7),
           child: InkWell(
             borderRadius: BorderRadius.circular(7),

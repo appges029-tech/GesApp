@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 
 class CashScreen extends ConsumerStatefulWidget {
-  const CashScreen({super.key});
+  const CashScreen({super.key, this.initialAccountId});
+
+  /// Caisse à présélectionner depuis un encaissement.
+  final String? initialAccountId;
 
   @override
   ConsumerState<CashScreen> createState() => _CashScreenState();
@@ -23,6 +28,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   @override
   void initState() {
     super.initState();
+    _account = widget.initialAccountId;
     _load();
   }
 
@@ -38,7 +44,10 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   Future<void> _load() async {
     final repo = ref.read(cashRepositoryProvider);
     final accounts = await repo.accounts();
-    final selected = _account ?? (accounts.isEmpty ? null : accounts.first['id'] as String?);
+    final preferred = _account;
+    final selected = accounts.any((account) => account['id'] == preferred)
+        ? preferred
+        : (accounts.isEmpty ? null : accounts.first['id'] as String?);
     final selectedRow = accounts.where((a) => a['id'] == selected).firstOrNull;
     final session = selected != null && selectedRow?['type'] == 'cash'
         ? await repo.openSession(selected)
@@ -56,37 +65,54 @@ class _CashScreenState extends ConsumerState<CashScreen> {
   }
 
   Future<int?> _amount(String title) async {
-    final controller = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    String input = '';
+    String? validationError;
+    return showDialog<int>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Montant FCFA'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) => AlertDialog(
+          title: Text(title),
+          content: TextFormField(
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: 'Montant FCFA',
+              errorText: validationError,
+            ),
+            onChanged: (value) => input = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = int.tryParse(input.replaceAll(RegExp(r'\D'), ''));
+                if (value == null || value < 0) {
+                  refresh(() => validationError = 'Saisissez un montant valide.');
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Valider'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Valider')),
-        ],
       ),
     );
-    final value = int.tryParse(controller.text.replaceAll(RegExp(r'\D'), ''));
-    controller.dispose();
-    return confirmed == true ? value : null;
   }
 
   Future<void> _openCash() async {
     final account = _account;
     if (account == null) return;
     final amount = await _amount('Fond initial');
-    if (amount == null) return;
+    if (amount == null || !mounted) return;
     try {
       await ref.read(cashRepositoryProvider).open(accountId: account, openingAmount: amount);
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(FriendlyError.message(error))));
     }
   }
 
@@ -94,7 +120,7 @@ class _CashScreenState extends ConsumerState<CashScreen> {
     final session = _session;
     if (session == null) return;
     final physical = await _amount('Comptage physique');
-    if (physical == null) return;
+    if (physical == null || !mounted) return;
     try {
       await ref.read(cashRepositoryProvider).close(
             sessionId: session['id'] as String,
@@ -106,68 +132,83 @@ class _CashScreenState extends ConsumerState<CashScreen> {
       );
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(FriendlyError.message(error))));
     }
   }
 
   Future<void> _transfer() async {
     final from = _transferFrom;
     final to = _transferTo;
-    if (from == null || to == null) return;
-    final amountController = TextEditingController();
-    final referenceController = TextEditingController();
-    final noteController = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    if (from == null || to == null || from == to || _busy) return;
+    String rawAmount = '';
+    String reference = '';
+    String note = '';
+    String? error;
+    final input = await showDialog<Map<String, String>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Transfert interne'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountController,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, refresh) => AlertDialog(
+          title: const Text('Transfert interne'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextFormField(
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Montant *'),
+                decoration: InputDecoration(labelText: 'Montant *', errorText: error),
+                onChanged: (value) => rawAmount = value,
               ),
               const SizedBox(height: 12),
-              TextField(controller: referenceController, decoration: const InputDecoration(labelText: 'Référence')),
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'Référence'),
+                onChanged: (value) => reference = value,
+              ),
               const SizedBox(height: 12),
-              TextField(controller: noteController, decoration: const InputDecoration(labelText: 'Note')),
-            ],
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'Note'),
+                onChanged: (value) => note = value,
+              ),
+            ]),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final amount = int.tryParse(rawAmount.replaceAll(RegExp(r'\D'), ''));
+                if (amount == null || amount <= 0) {
+                  refresh(() => error = 'Saisissez un montant supérieur à zéro.');
+                  return;
+                }
+                Navigator.pop(dialogContext, {
+                  'amount': amount.toString(),
+                  'reference': reference,
+                  'note': note,
+                });
+              },
+              child: const Text('Transférer'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Transférer')),
-        ],
       ),
     );
-    final amount = int.tryParse(amountController.text.replaceAll(RegExp(r'\D'), '')) ?? 0;
-    final reference = referenceController.text;
-    final note = noteController.text;
-    amountController.dispose();
-    referenceController.dispose();
-    noteController.dispose();
-    if (confirmed != true || amount <= 0) return;
+    if (input == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await ref.read(cashRepositoryProvider).transfer(
-            fromAccountId: from,
-            toAccountId: to,
-            amount: amount,
-            reference: reference,
-            note: note,
-          );
+        fromAccountId: from,
+        toAccountId: to,
+        amount: int.parse(input['amount']!),
+        reference: input['reference'] ?? '',
+        note: input['note'] ?? '',
+      );
       ref.invalidate(auditEntriesProvider);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Transfert de ${formatXaf(amount)} enregistré.')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Transfert de ${formatXaf(int.parse(input['amount']!))} enregistré.')),
+      );
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(FriendlyError.message(error))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -182,13 +223,14 @@ class _CashScreenState extends ConsumerState<CashScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Ouverture / clôture', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          Text('Ma caisse', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _account,
             decoration: const InputDecoration(labelText: 'Caisse / compte'),
             items: _accounts
-                .map((account) => DropdownMenuItem(value: account['id'] as String, child: Text(account['name'] as String)))
+                .map((account) => DropdownMenuItem(value: account['id'] as String, child: Text(account['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis)))
                 .toList(),
             onChanged: (value) async {
               _account = value;
@@ -208,8 +250,8 @@ class _CashScreenState extends ConsumerState<CashScreen> {
             Card(
               child: ListTile(
                 title: const Text('Caisse fermée'),
-                subtitle: const Text('Tout mouvement sur cette caisse est bloqué tant qu’elle n’est pas ouverte.'),
-                trailing: FilledButton(onPressed: _account == null ? null : _openCash, child: const Text('Ouvrir')),
+                subtitle: const Text('Pour recevoir des paiements en espèces, ouvrez la caisse.'),
+                trailing: OperatorSession.isReadOnly ? null : FilledButton(onPressed: _account == null ? null : _openCash, child: const Text('Ouvrir')),
               ),
             )
           else
@@ -221,13 +263,13 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Session ouverte', style: TextStyle(fontWeight: FontWeight.w800)),
+                      const Text('Caisse ouverte', style: TextStyle(fontWeight: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text('Fond initial : ${formatXaf(_session!['opening_amount'] as int)}'),
                       Text('Solde théorique : ${snapshot.hasData ? formatXaf(snapshot.data!) : 'Calcul…'}'),
                       const SizedBox(height: 12),
                       FilledButton.icon(
-                        onPressed: snapshot.hasData ? () => _closeCash(snapshot.data!) : null,
+                        onPressed: OperatorSession.isReadOnly || !snapshot.hasData ? null : () => _closeCash(snapshot.data!),
                         icon: const Icon(Icons.lock_outline),
                         label: const Text('Clôturer'),
                       ),
@@ -236,40 +278,51 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: 28),
-          Text('Transfert entre comptes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _transferFrom,
-                  decoration: const InputDecoration(labelText: 'Depuis'),
-                  items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String))).toList(),
-                  onChanged: (v) => setState(() => _transferFrom = v),
+          if (!OperatorSession.isReadOnly)
+            ExpansionTile(
+              title: const Text('Options avancées de trésorerie'),
+              subtitle: const Text('Transférer un montant entre deux comptes'),
+              childrenPadding: const EdgeInsets.symmetric(vertical: 12),
+              children: [
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+            isExpanded: true,
+                    initialValue: _transferFrom,
+                    decoration: const InputDecoration(labelText: 'Depuis'),
+                    items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (v) => setState(() => _transferFrom = v),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _transferTo,
-                  decoration: const InputDecoration(labelText: 'Vers'),
-                  items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String))).toList(),
-                  onChanged: (v) => setState(() => _transferTo = v),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+            isExpanded: true,
+                    initialValue: _transferTo,
+                    decoration: const InputDecoration(labelText: 'Vers'),
+                    items: _accounts.map((a) => DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (v) => setState(() => _transferTo = v),
+                  ),
                 ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _busy || _transferFrom == null || _transferTo == null || _transferFrom == _transferTo ? null : _transfer,
+              icon: const Icon(Icons.swap_horiz),
+              label: const Text('Enregistrer un transfert'),
+            ),
             ],
           ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _busy || _transferFrom == null || _transferTo == null || _transferFrom == _transferTo ? null : _transfer,
-            icon: const Icon(Icons.swap_horiz),
-            label: const Text('Enregistrer un transfert'),
-          ),
           const SizedBox(height: 20),
-          if (_transfers.isNotEmpty) ...[
-            Text('Transferts récents', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
+          if (_transfers.isNotEmpty)
+            ExpansionTile(
+              title: const Text('Historique des transferts'),
+              subtitle: Text(_transfers.length.toString() + ' mouvement(s) enregistré(s)'),
+              children: [
+
             ..._transfers.take(20).map(
                   (t) => Card(
                     child: ListTile(
@@ -280,7 +333,8 @@ class _CashScreenState extends ConsumerState<CashScreen> {
                     ),
                   ),
                 ),
-          ],
+              ],
+            ),
         ],
       ),
     );

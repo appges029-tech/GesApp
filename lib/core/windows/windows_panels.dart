@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'windows_ui.dart';
 
@@ -16,20 +17,32 @@ class WindowsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final content = Container(
-      decoration: BoxDecoration(
+    if (WindowsUi.isDesktop(context)) {
+      final scheme = Theme.of(context).colorScheme;
+      final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: scheme.outlineVariant),
+      );
+      final content = Padding(padding: padding, child: child);
+      return Material(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(WindowsUi.isDesktop(context) ? 8 : 16),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .8)),
-      ),
-      child: Padding(padding: padding, child: child),
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null
+            ? content
+            : InkWell(onTap: onTap, child: content),
+      );
+    }
+    final content = GlassCard(
+      padding: padding,
+      quality: GlassQuality.standard,
+      child: child,
     );
     if (onTap == null) return content;
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(WindowsUi.isDesktop(context) ? 8 : 16),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: content,
       ),
@@ -86,6 +99,32 @@ class WindowsModuleCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Keeps critical columns readable in a resized Windows window.
+/// No horizontal scroll is introduced while all columns fit.
+class WindowsAdaptiveTable extends StatelessWidget {
+  const WindowsAdaptiveTable({
+    super.key,
+    required this.child,
+    this.minWidth = 980,
+  });
+
+  final Widget child;
+  final double minWidth;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth >= minWidth) return child;
+      return Scrollbar(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(width: minWidth, child: child),
+        ),
+      );
+    },
+  );
 }
 
 class WindowsModuleGrid extends StatelessWidget {

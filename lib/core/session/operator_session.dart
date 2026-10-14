@@ -1,3 +1,7 @@
+import 'package:flutter/foundation.dart';
+
+import 'tenant_subscription_access.dart';
+
 /// Session authentifiée courante.
 ///
 /// Depuis GesApp 2.1, chaque session appartient à un établissement (tenant).
@@ -6,6 +10,8 @@
 /// - `manager` : utilisateur opérationnel autorisé à modifier les données
 ///   métier, sans pouvoir administrer les comptes du tenant.
 abstract final class OperatorSession {
+  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
+
   static String? _userId;
   static String _displayName = 'Système';
   static String _role = 'anonymous';
@@ -32,7 +38,8 @@ abstract final class OperatorSession {
   static bool get isCashier => false;
 
   static bool hasPermission(String permission) {
-    if (!isAuthenticated) return false;
+    if (!isAuthenticated ||
+        (organizationId != null && !TenantSubscriptionAccess.instance.isAllowed)) return false;
     if (permission == 'security.manage_users' || permission == 'tenant.manage') {
       return isAdmin;
     }
@@ -62,6 +69,7 @@ abstract final class OperatorSession {
     _organizationCode = organizationCode;
     _organizationName = organizationName;
     _cloudUserId = cloudUserId;
+    changes.value++;
   }
 
   static void clear() {
@@ -72,9 +80,11 @@ abstract final class OperatorSession {
     _organizationCode = null;
     _organizationName = null;
     _cloudUserId = null;
+    changes.value++;
   }
 
   static void set(String name) {
     _displayName = name.trim().isEmpty ? 'Gestionnaire' : name.trim();
+    changes.value++;
   }
 }

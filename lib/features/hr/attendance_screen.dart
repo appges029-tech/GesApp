@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/layout/responsive_layout.dart';
 import '../../data/models/hr.dart';
 
@@ -186,8 +187,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                         subtitle: Text(
                           '${employee.employeeNumber}${attendanceByEmployee[employee.id] == null ? '' : ' · ${_label(attendanceByEmployee[employee.id]!.status)}'}',
                         ),
-                        onTap: () => _edit(employee, attendanceByEmployee[employee.id]),
-                        trailing: PopupMenuButton<String>(
+                        onTap: OperatorSession.isReadOnly ? null : () => _edit(employee, attendanceByEmployee[employee.id]),
+                        trailing: OperatorSession.isReadOnly
+                            ? null
+                            : PopupMenuButton<String>(
                           tooltip: 'Marquer rapidement',
                           onSelected: (value) => _mark(employee, value),
                           itemBuilder: (_) => const [

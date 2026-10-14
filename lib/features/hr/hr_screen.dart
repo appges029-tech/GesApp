@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
@@ -36,7 +37,8 @@ class _HrScreenState extends ConsumerState<HrScreen> {
       subtitle: 'Personnel, présence, congés, contrats et paie',
       actions: [
         WindowsCommandButton(icon: Icons.refresh, label: 'Actualiser', onPressed: () => setState(() => _refresh++)),
-        WindowsCommandButton(icon: Icons.settings_outlined, label: 'Configuration', onPressed: () => _open(const HrConfigurationScreen())),
+        if (!OperatorSession.isReadOnly)
+          WindowsCommandButton(icon: Icons.settings_outlined, label: 'Configuration', onPressed: () => _open(const HrConfigurationScreen())),
       ],
       body: FutureBuilder<HrSummary>(
         key: ValueKey(_refresh),
@@ -81,39 +83,65 @@ class _HrScreenState extends ConsumerState<HrScreen> {
           if (summary == null) {
             return const Center(child: Text('Aucune donnée RH disponible.'));
           }
+          final desktop = WindowsUi.isDesktop(context);
+          final kpis = LayoutBuilder(
+            builder: (context, box) {
+              final columns = box.maxWidth >= 1100
+                  ? 4
+                  : box.maxWidth >= 650
+                      ? 2
+                      : 2;
+              const gap = 10.0;
+              final width =
+                  (box.maxWidth - ((columns - 1) * gap)) / columns;
+              final cards = [
+                _Kpi('Personnel actif', '${summary.activeEmployees}', Icons.groups_2_outlined),
+                _Kpi('Absents aujourd’hui', '${summary.absentToday}', Icons.person_off_outlined),
+                _Kpi('En congé', '${summary.onLeaveToday}', Icons.beach_access_outlined),
+                _Kpi('Contrats ≤ 30 j', '${summary.expiringContracts}', Icons.event_busy_outlined),
+                _Kpi('Dossiers incomplets', '${summary.incompleteFiles}', Icons.folder_off_outlined),
+                _Kpi('Paies à traiter', '${summary.pendingPayroll}', Icons.pending_actions_outlined),
+                _Kpi('Paie du mois', formatXaf(summary.monthlyPayroll), Icons.payments_outlined),
+              ];
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final card in cards)
+                    SizedBox(width: width, child: card),
+                ],
+              );
+            },
+          );
+          final modules = WindowsModuleGrid(children: [
+            WindowsModuleCard(icon: Icons.badge_outlined, title: 'Personnel', subtitle: 'Fiches, contrats, affectations, documents et avances.', onTap: () => _open(const EmployeesScreen())),
+            WindowsModuleCard(icon: Icons.how_to_reg_outlined, title: 'Présences', subtitle: 'Présent, absent, retard, permission, mission et maladie.', onTap: () => _open(const AttendanceScreen())),
+            WindowsModuleCard(icon: Icons.event_available_outlined, title: 'Congés & permissions', subtitle: 'Demandes, validation, refus et calendrier des absences.', onTap: () => _open(const LeaveScreen())),
+            WindowsModuleCard(icon: Icons.account_balance_wallet_outlined, title: 'Paie', subtitle: 'Calcul, retenues, avances, validation, paiement et bulletin PDF.', onTap: () => _open(const PayrollScreen())),
+            WindowsModuleCard(icon: Icons.analytics_outlined, title: 'Rapports RH', subtitle: 'Effectifs, masse salariale, présence, congés et contrats.', onTap: () => _open(const HrReportsScreen())),
+            if (!OperatorSession.isReadOnly)
+              WindowsModuleCard(icon: Icons.tune_outlined, title: 'Configuration RH', subtitle: 'Services, postes et éléments de salaire.', onTap: () => _open(const HrConfigurationScreen())),
+          ]);
           return RefreshIndicator(
             onRefresh: () async => setState(() => _refresh++),
             child: ListView(
-              padding: WindowsUi.isDesktop(context) ? EdgeInsets.zero : const EdgeInsets.all(16),
+              padding: desktop ? EdgeInsets.zero : const EdgeInsets.all(16),
               children: [
-                LayoutBuilder(
-                  builder: (context, box) {
-                    final columns = box.maxWidth >= 1100 ? 4 : box.maxWidth >= 650 ? 2 : 1;
-                    const gap = 10.0;
-                    final width = (box.maxWidth - ((columns - 1) * gap)) / columns;
-                    final cards = [
-                      _Kpi('Personnel actif', '${summary.activeEmployees}', Icons.groups_2_outlined),
-                      _Kpi('Absents aujourd’hui', '${summary.absentToday}', Icons.person_off_outlined),
-                      _Kpi('En congé', '${summary.onLeaveToday}', Icons.beach_access_outlined),
-                      _Kpi('Contrats ≤ 30 j', '${summary.expiringContracts}', Icons.event_busy_outlined),
-                      _Kpi('Dossiers incomplets', '${summary.incompleteFiles}', Icons.folder_off_outlined),
-                      _Kpi('Paies à traiter', '${summary.pendingPayroll}', Icons.pending_actions_outlined),
-                      _Kpi('Paie du mois', formatXaf(summary.monthlyPayroll), Icons.payments_outlined),
-                    ];
-                    return Wrap(spacing: gap, runSpacing: gap, children: [for (final card in cards) SizedBox(width: width, child: card)]);
-                  },
-                ),
-                const SizedBox(height: 22),
-                Text('Modules', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 10),
-                WindowsModuleGrid(children: [
-                  WindowsModuleCard(icon: Icons.badge_outlined, title: 'Personnel', subtitle: 'Fiches, contrats, affectations, documents et avances.', onTap: () => _open(const EmployeesScreen())),
-                  WindowsModuleCard(icon: Icons.how_to_reg_outlined, title: 'Présences', subtitle: 'Présent, absent, retard, permission, mission et maladie.', onTap: () => _open(const AttendanceScreen())),
-                  WindowsModuleCard(icon: Icons.event_available_outlined, title: 'Congés & permissions', subtitle: 'Demandes, validation, refus et calendrier des absences.', onTap: () => _open(const LeaveScreen())),
-                  WindowsModuleCard(icon: Icons.account_balance_wallet_outlined, title: 'Paie', subtitle: 'Calcul, retenues, avances, validation, paiement et bulletin PDF.', onTap: () => _open(const PayrollScreen())),
-                  WindowsModuleCard(icon: Icons.analytics_outlined, title: 'Rapports RH', subtitle: 'Effectifs, masse salariale, présence, congés et contrats.', onTap: () => _open(const HrReportsScreen())),
-                  WindowsModuleCard(icon: Icons.tune_outlined, title: 'Configuration RH', subtitle: 'Services, postes et éléments de salaire.', onTap: () => _open(const HrConfigurationScreen())),
-                ]),
+                if (!desktop) ...[
+                  Text('Actions RH', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 10),
+                  modules,
+                  const SizedBox(height: 20),
+                  Text('Indicateurs', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 10),
+                  kpis,
+                ] else ...[
+                  kpis,
+                  const SizedBox(height: 22),
+                  Text('Modules', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 10),
+                  modules,
+                ],
                 const SizedBox(height: 28),
               ],
             ),
