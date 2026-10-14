@@ -59,9 +59,11 @@ class ReportRepository {
 
   Future<List<Map<String,Object?>>> unpaid({ReportFilter filter=const ReportFilter()}) async {
     final scope=_studentScope(filter);final c=<String>["d.status != 'paid'"];final a=<Object?>[];
-    final yearId=await _effectiveSchoolYearId(filter); if(yearId!=null){c.add('d.school_year_id = ?');a.add(yearId);}
+    final yearId=await _effectiveSchoolYearId(filter);
+    if (yearId == null) throw StateError('Aucune année scolaire active pour les impayés.');
+    c.add('d.school_year_id = ?'); a.add(yearId);
     if(scope.sql.isNotEmpty){c.add(scope.sql);a.addAll(scope.args);} if(filter.start!=null){c.add('COALESCE(d.due_date,d.created_at) >= ?');a.add(filter.start!.toIso8601String());} if(filter.end!=null){c.add('COALESCE(d.due_date,d.created_at) < ?');a.add(filter.end!.toIso8601String());}
-    return _db.db.rawQuery('''SELECT d.id due_id,s.registration_number,s.last_name||' '||s.first_name student,cy.name cycle,c.name classroom,fam.name family,f.name fee,d.period_key,d.amount_due,d.amount_paid,(d.amount_due-d.amount_paid) balance,d.due_date
+    return _db.db.rawQuery('''SELECT d.id due_id,s.id student_id,s.registration_number,s.last_name||' '||s.first_name student,cy.name cycle,c.name classroom,fam.name family,f.name fee,d.period_key,d.amount_due,d.amount_paid,(d.amount_due-d.amount_paid) balance,d.due_date
       FROM dues d JOIN students s ON s.id=d.student_id JOIN student_enrollments se ON se.student_id=s.id AND se.school_year_id=d.school_year_id JOIN classrooms c ON c.id=se.classroom_id JOIN cycles cy ON cy.id=c.cycle_id LEFT JOIN families fam ON fam.id=s.family_id JOIN fee_categories f ON f.id=d.fee_id
       WHERE ${c.join(' AND ')} ORDER BY d.due_date,s.last_name''',a);
   }
@@ -81,6 +83,23 @@ class ReportRepository {
       FROM dues d JOIN students s ON s.id=d.student_id JOIN student_enrollments se ON se.student_id=s.id AND se.school_year_id=d.school_year_id JOIN classrooms c ON c.id=se.classroom_id JOIN cycles cy ON cy.id=c.cycle_id LEFT JOIN families fam ON fam.id=s.family_id JOIN fee_categories f ON f.id=d.fee_id LEFT JOIN establishments e ON e.id=(SELECT id FROM establishments ORDER BY created_at LIMIT 1) LEFT JOIN school_years sy ON sy.id=d.school_year_id WHERE d.id=? LIMIT 1''',[dueId]);
     if(rows.isEmpty)throw StateError('Échéance introuvable.');return rows.first;
   }
+
+
+  /// Situation consolidée de l'élève, limitée à l'année de l'échéance choisie.
+  /// Utilisée par les avis et factures ; n'emprunte jamais les tarifs d'une
+  /// autre année et ne modifie aucune donnée.
+  Future<List<Map<String, Object?>>> studentBillingDues(String dueId) =>
+      _db.db.rawQuery('''
+        SELECT f.name fee, d.period_key, d.due_date,
+          d.amount_due, d.amount_paid,
+          (d.amount_due - d.amount_paid) balance, d.status
+        FROM dues d
+        JOIN fee_categories f ON f.id = d.fee_id
+        WHERE d.student_id = (SELECT student_id FROM dues WHERE id = ?)
+          AND d.school_year_id =
+              (SELECT school_year_id FROM dues WHERE id = ?)
+        ORDER BY COALESCE(d.due_date, d.created_at), f.name
+      ''', [dueId, dueId]);
 
   Future<List<Map<String,Object?>>> cashJournal({ReportFilter filter=const ReportFilter()}) async {
     final paymentConditions=<String>["p.status='posted'"];final args=<Object?>[];
@@ -133,11 +152,15 @@ class ReportRepository {
 
   Future<List<Map<String,Object?>>> agingReport({ReportFilter filter=const ReportFilter()}) async {
     final now=DateTime.now();
+    final today=DateTime(now.year,now.month,now.day);
     final rows=await unpaid(filter:filter);
     final buckets=<String,int>{'0-30 jours':0,'31-60 jours':0,'61-90 jours':0,'90+ jours':0};
     for(final row in rows){
       final raw=row['due_date']; if(raw==null) continue;
-      final days=now.difference(DateTime.parse(raw as String)).inDays; if(days<0) continue;
+      final date=DateTime.parse(raw as String);
+      final dueDay=DateTime(date.year,date.month,date.day);
+      if (!dueDay.isBefore(today)) continue;
+      final days=today.difference(dueDay).inDays;
       final key=days<=30?'0-30 jours':days<=60?'31-60 jours':days<=90?'61-90 jours':'90+ jours';
       buckets[key]=buckets[key]!+(row['balance'] as int);
     }
@@ -226,9 +249,71 @@ class ReportRepository {
     final result=merged.values.toList();result.sort((x,y)=>((y['total'] as num).toInt()).compareTo((x['total'] as num).toInt()));return result;
   }
 
-  Future<List<LedgerEntry>> grandLedger({ReportFilter filter=const ReportFilter()}) async {
-    final rows=await cashJournal(filter:filter);rows.sort((a,b)=>('${a['date']}').compareTo('${b['date']}'));var balance=0;final result=<LedgerEntry>[];
-    for(final r in rows){final amount=r['amount'] as int;final credit=amount>0?amount:0;final debit=amount<0?-amount:0;balance+=credit-debit;result.add(LedgerEntry(date:DateTime.parse(r['date'] as String),reference:'${r['reference']}',description:'${r['type']} · ${r['description']}',debit:debit,credit:credit,balance:balance));}return result.reversed.toList();
+  /// Reconstitue le solde progressif à partir des flux du même périmètre.
+  /// Le report n'est pas un encaissement et n'affecte pas les colonnes débit/crédit.
+  static List<LedgerEntry> ledgerEntriesFromJournal(
+    List<Map<String, Object?>> journal, {
+    int openingBalance = 0,
+    DateTime? openingDate,
+  }) {
+    final rows = [...journal]
+      ..sort((a, b) => ('${a['date']}').compareTo('${b['date']}'));
+    var balance = openingBalance;
+    final result = <LedgerEntry>[
+      if (openingDate != null)
+        LedgerEntry(
+          date: openingDate,
+          reference: 'REPORT',
+          description: 'Solde antérieur à la période sélectionnée',
+          debit: 0,
+          credit: 0,
+          balance: openingBalance,
+        ),
+    ];
+    for (final row in rows) {
+      final amount = (row['amount'] as num).toInt();
+      final credit = amount > 0 ? amount : 0;
+      final debit = amount < 0 ? -amount : 0;
+      balance += credit - debit;
+      result.add(LedgerEntry(
+        date: DateTime.parse(row['date'] as String),
+        reference: '${row['reference']}',
+        description: '${row['type']} · ${row['description']}',
+        debit: debit,
+        credit: credit,
+        balance: balance,
+      ));
+    }
+    return result.reversed.toList();
+  }
+
+  Future<List<LedgerEntry>> grandLedger({
+    ReportFilter filter = const ReportFilter(),
+  }) async {
+    var openingBalance = 0;
+    if (filter.start != null) {
+      // Même périmètre scolaire et mêmes types de flux, mais strictement
+      // avant le début de la période. On ne reporte pas un solde fictif à zéro.
+      final previous = await cashJournal(
+        filter: ReportFilter(
+          schoolYearId: filter.schoolYearId,
+          cycleId: filter.cycleId,
+          classroomId: filter.classroomId,
+          familyId: filter.familyId,
+          periodKey: filter.periodKey,
+          end: filter.start,
+        ),
+      );
+      openingBalance = previous.fold<int>(
+        0, (sum, row) => sum + (row['amount'] as num).toInt(),
+      );
+    }
+    final current = await cashJournal(filter: filter);
+    return ledgerEntriesFromJournal(
+      current,
+      openingBalance: openingBalance,
+      openingDate: filter.start,
+    );
   }
 
 

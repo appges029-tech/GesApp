@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
+import 'payment_amount_policy.dart';
+import 'cash_opening_required_dialog.dart';
+import 'cash_screen.dart';
 import '../../services/receipt_printer.dart';
 import '../../services/receipt_printing_preferences.dart';
 import '../../services/receipt_service.dart';
@@ -16,7 +21,10 @@ import '../../data/models/family.dart';
 enum _PayerType { student, family }
 
 class PaymentFormScreen extends ConsumerStatefulWidget {
-  const PaymentFormScreen({super.key});
+  const PaymentFormScreen({super.key, this.initialStudentId, this.initialDueId});
+
+  final String? initialStudentId;
+  final String? initialDueId;
 
   @override
   ConsumerState<PaymentFormScreen> createState() => _PaymentFormScreenState();
@@ -43,7 +51,11 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   List<DueItem> _payerDues = const [];
   final Set<String> _selectedDues = {};
   bool _saving = false;
+  bool _checkingCash = false;
+  final String _operationId = const Uuid().v4();
+  String? _committedReceipt;
   bool _loadingBalance = false;
+  bool _amountEditedByUser = false;
   int? _outstanding;
   int _credit = 0;
 
@@ -51,6 +63,26 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
   void initState() {
     super.initState();
     Future.microtask(_loadPaymentConfiguration);
+    if (widget.initialStudentId != null) Future.microtask(_prefillStudent);
+  }
+
+  Future<void> _prefillStudent() async {
+    try {
+      final students = await ref.read(studentsProvider.future);
+      final matches = students.where((s) => s.id == widget.initialStudentId);
+      if (!mounted || matches.isEmpty) return;
+      final student = matches.first;
+      setState(() {
+        _payerType = _PayerType.student;
+        _studentId = student.id;
+        _cycleId = student.cycleId;
+        _classroomId = student.classroomId;
+      });
+      await _loadOutstanding();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Préselection impossible : $error')));
+    }
   }
 
   Future<void> _loadPaymentConfiguration() async {
@@ -127,6 +159,13 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
       .where((due) => _selectedDues.contains(due.id))
       .fold<int>(0, (total, due) => total + due.balance);
 
+  void _suggestAmountIfUntouched() {
+    _amount.text = suggestedPaymentAmount(
+      current: _amount.text, selectedRemaining: _selectedRemaining,
+      editedByCashier: _amountEditedByUser,
+    );
+  }
+
   void _chooseRubric(String? feeId) {
     setState(() {
       _feeId = feeId;
@@ -137,7 +176,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
           break;
         }
       }
-      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      _suggestAmountIfUntouched();
     });
   }
 
@@ -146,7 +185,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     setState(() {
       if (selected) { _selectedDues.add(due.id); }
       else { _selectedDues.remove(due.id); }
-      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      _suggestAmountIfUntouched();
     });
   }
 
@@ -154,7 +193,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     setState(() {
       if (selected) { _selectedDues.add(due.id); }
       else { _selectedDues.remove(due.id); }
-      _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+      _suggestAmountIfUntouched();
     });
   }
 
@@ -171,10 +210,14 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         _selectedDues.clear();
         _feeId = null;
         _amount.clear();
+        _amountEditedByUser = false;
       });
       return;
     }
-    setState(() => _loadingBalance = true);
+    setState(() {
+      _loadingBalance = true;
+      _amountEditedByUser = false;
+    });
     try {
       final repo = ref.read(financeRepositoryProvider);
       if (payerType == _PayerType.student) {
@@ -198,20 +241,26 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
         _payerDues = dues;
         _selectedDues.clear();
         if (payerType == _PayerType.family) {
-          _selectedDues.addAll(dues.where((d) => d.balance > 0).map((d) => d.id));
+          // The cashier explicitly chooses the children and months being paid.
+          _feeId = null;
         } else {
           final available = dues.where((d) => d.balance > 0).toList();
-          _feeId = available.isNotEmpty ? available.first.feeId :
-              (dues.isNotEmpty ? dues.first.feeId : null);
-          for (final due in available) {
-            if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
+          final preselected = available.where((d) => d.id == widget.initialDueId).firstOrNull;
+          _feeId = preselected?.feeId ?? (available.isNotEmpty ? available.first.feeId :
+              (dues.isNotEmpty ? dues.first.feeId : null));
+          if (preselected != null) {
+            _selectedDues.add(preselected.id);
+          } else {
+            for (final due in available) {
+              if (due.feeId == _feeId) { _selectedDues.add(due.id); break; }
+            }
           }
         }
-        _amount.text = _selectedRemaining > 0 ? _selectedRemaining.toString() : '';
+        _suggestAmountIfUntouched();
       });
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Chargement des périodes impossible : $error')));
+        SnackBar(content: Text('Chargement impossible : ${FriendlyError.message(error)}')));
     } finally {
       if (mounted) setState(() => _loadingBalance = false);
     }
@@ -249,103 +298,259 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
     }
   }
 
+  /// Contrôle l'ouverture avant confirmation. Le dépôt financier vérifie
+  /// également la caisse dans sa transaction ; ce contrôle est uniquement UX.
+  Future<bool> _checkCashBeforePayment() async {
+    final accountId = _cashAccountId;
+    if (_methodAccountType != 'cash' || accountId == null) return true;
+
+    try {
+      final session = await ref.read(cashRepositoryProvider).openSession(accountId);
+      if (!mounted) return false;
+      if (session != null) return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Vérification de la caisse impossible : ${FriendlyError.message(error)}'),
+        ));
+      }
+      return false;
+    }
+
+    final accountName = _cashAccounts
+        .where((account) => account['id'] == accountId)
+        .map((account) => account['name'] as String? ?? 'Caisse physique')
+        .firstOrNull ?? 'Caisse physique';
+    if (!mounted) return false;
+    final openCash = await showCashOpeningRequiredDialog(
+      context,
+      accountName: accountName,
+    );
+    if (!mounted || !openCash) return false;
+
+    // Conserver le formulaire rempli en ouvrant la bonne caisse.
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => CashScreen(initialAccountId: accountId),
+    ));
+    if (!mounted) return false;
+    try {
+      final session = await ref.read(cashRepositoryProvider).openSession(accountId);
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(session == null
+            ? 'La caisse est toujours fermée. Ouvrez-la avant d’encaisser.'
+            : 'Caisse ouverte. Vous pouvez maintenant valider le paiement.'),
+      ));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Vérification de la caisse impossible : ${FriendlyError.message(error)}'),
+        ));
+      }
+    }
+    // Une nouvelle validation explicite évite les encaissements involontaires.
+    return false;
+  }
+
   Future<void> _save() async {
-    final payerOk =
-        _payerType == _PayerType.student ? _studentId != null : _familyId != null;
-    if (!_formKey.currentState!.validate() || !payerOk) return;
+    if (_saving || _checkingCash || _committedReceipt != null) {
+      if (_committedReceipt != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Paiement déjà enregistré : reçu ' + _committedReceipt!),
+        ));
+      }
+      return;
+    }
+    final payerOk = _payerType == _PayerType.student
+        ? _studentId != null : _familyId != null;
+    if (!(_formKey.currentState?.validate() ?? false) || !payerOk) return;
     if (_selectedDues.isEmpty || _selectedRemaining <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sélectionnez une rubrique et une période non soldée.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Sélectionnez une rubrique et une période non soldée.')));
       return;
     }
     final requested = int.tryParse(_amount.text.replaceAll(RegExp(r'\D'), '')) ?? 0;
-    if (requested > _selectedRemaining) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le montant dépasse les périodes choisies. Sélectionnez aussi les autres périodes concernées.')));
+    if (requested <= 0 || requested > _selectedRemaining) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Saisissez un montant positif qui ne dépasse pas les périodes sélectionnées.')));
       return;
     }
-    setState(() => _saving = true);
+
+    setState(() => _checkingCash = true);
+    final cashIsReady = await _checkCashBeforePayment();
+    if (!mounted) return;
+    setState(() => _checkingCash = false);
+    if (!cashIsReady) return;
+
+    // Resolve the beneficiary BEFORE writing money. A failed lookup cannot
+    // make an already-posted payment appear unsuccessful.
+    String beneficiary;
     try {
-      final amount = int.parse(_amount.text.replaceAll(RegExp(r'\D'), ''));
-      final repo = ref.read(financeRepositoryProvider);
-      final String receipt;
-      final String beneficiaryName;
       if (_payerType == _PayerType.student) {
-        receipt = await repo.recordPayment(
-          studentId: _studentId!,
-          amount: amount,
-          method: _method,
-          note: _note.text, dueIds:_selectedDues.toList(), cashAccountId:_cashAccountId, transactionReference:_reference.text, payerPhone:_payerPhone.text, paymentOperator:_operator.text,
-        );
         final students = await ref.read(studentsProvider.future);
-        beneficiaryName = students.firstWhere((s) => s.id == _studentId).fullName;
+        beneficiary = students.firstWhere((s) => s.id == _studentId).fullName;
+      } else {
+        final families = await ref.read(familiesProvider.future);
+        beneficiary = families.firstWhere((f) => f.id == _familyId).name;
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Impossible de vérifier le bénéficiaire : ' +
+            FriendlyError.message(error))));
+      return;
+    }
+    if (!mounted || _saving) return;
+    // unpaidForPayer and the repository allocation use exactly the same
+    // period/date/creation/id order. Preserve it for the cashier preview.
+    final selected = _payerDues.where((d) =>
+        _selectedDues.contains(d.id)).toList();
+    var toAllocate = requested;
+    final allocations = <({DueItem due, int paid})>[];
+    for (final due in selected) {
+      final paid = toAllocate < due.balance ? toAllocate : due.balance;
+      allocations.add((due: due, paid: paid));
+      toAllocate -= paid;
+    }
+    final type = _payerType;
+    final studentId = _studentId, familyId = _familyId;
+    final method = _method, account = _cashAccountId;
+    final dueIds = selected.map((d) => d.id).toList();
+    final note = _note.text, reference = _reference.text;
+    final phone = _payerPhone.text, operator = _operator.text;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Vérifier avant d’encaisser'),
+        content: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Bénéficiaire : ' + beneficiary,
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text('Montant reçu : ' + formatXaf(requested),
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text('Mode : ' + method),
+            const SizedBox(height: 12),
+            const Text('Répartition du paiement :'),
+            ...allocations.where((a) => a.paid > 0).map((a) =>
+              Text('• ' + a.due.studentName + ' · ' + a.due.feeName
+                + ' · ' + _periodLabel(a.due) + ' : ' + formatXaf(a.paid))),
+            const SizedBox(height: 8),
+            Text('Reste sur les périodes choisies : ' +
+              formatXaf(_selectedRemaining - requested)),
+            if (requested < _selectedRemaining)
+              const Text('Le solde non réglé restera dû.'),
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Corriger')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirmer et enregistrer')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _saving || _committedReceipt != null) return;
+    setState(() => _saving = true);
+    late final String receipt;
+    try {
+      final repo = ref.read(financeRepositoryProvider);
+      if (type == _PayerType.student) {
+        receipt = await repo.recordPayment(
+          studentId: studentId!, amount: requested, method: method,
+          note: note, dueIds: dueIds, cashAccountId: account,
+          transactionReference: reference, payerPhone: phone,
+          paymentOperator: operator, operationId: _operationId,
+        );
       } else {
         receipt = await repo.recordFamilyPayment(
-          familyId: _familyId!,
-          amount: amount,
-          method: _method,
-          note: _note.text, dueIds:_selectedDues.toList(), cashAccountId:_cashAccountId, transactionReference:_reference.text, payerPhone:_payerPhone.text, paymentOperator:_operator.text,
+          familyId: familyId!, amount: requested, method: method,
+          note: note, dueIds: dueIds, cashAccountId: account,
+          transactionReference: reference, payerPhone: phone,
+          paymentOperator: operator, operationId: _operationId,
         );
-        final families = await ref.read(familiesProvider.future);
-        beneficiaryName = families.firstWhere((f) => f.id == _familyId).name;
       }
+      // This is the financial commit boundary. From this point onward no
+      // secondary UI, provider or printer error means "payment failed".
+      _committedReceipt = receipt;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:
+          Text('Paiement non confirmé : ' + FriendlyError.message(error) +
+            ' Vérifiez l’historique avant toute nouvelle tentative.')));
+        setState(() => _saving = false);
+      }
+      return;
+    }
+    if (!mounted) return;
+    // Provider refresh and printer preferences are non-financial side effects.
+    try {
       ref.invalidate(recentPaymentsProvider);
       ref.invalidate(dashboardProvider);
       ref.invalidate(unpaidDuesProvider);
       ref.invalidate(auditEntriesProvider);
-      if (_payerType == _PayerType.family) {
-        ref.invalidate(familyBalanceProvider(_familyId!));
+      if (type == _PayerType.family) {
+        ref.invalidate(familyBalanceProvider(familyId!));
       }
-      if (!mounted) return;
-      final receiptPrefs = await ReceiptPrintingPreferencesStore().load();
-      if (receiptPrefs.autoPrint && receiptPrefs.format.isPos) {
+    } catch (_) {
+      // The receipt has been committed; the user can refresh the dashboard.
+    }
+    String? printWarning;
+    try {
+      final prefs = await ReceiptPrintingPreferencesStore().load();
+      if (prefs.autoPrint && prefs.format.isPos) {
         await _printReceipt(
-          receiptNumber: receipt,
-          beneficiaryName: beneficiaryName,
-          amount: amount,
-          paidAt: DateTime.now(),
-          format: receiptPrefs.format,
-          directToPrinter: true,
-          preferences: receiptPrefs,
+          receiptNumber: receipt, beneficiaryName: beneficiary,
+          amount: requested, paidAt: DateTime.now(),
+          format: prefs.format, directToPrinter: true, preferences: prefs,
         );
       }
-      if (!mounted) return;
+    } catch (_) {
+      printWarning = 'Le paiement est enregistré ; l’impression automatique '
+          'n’a pas pu démarrer. Vous pouvez réimprimer le reçu.';
+    }
+    if (!mounted) return;
+    try {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Paiement enregistré'),
-          content: Text('Reçu $receipt créé avec succès pour $beneficiaryName.'),
+          content: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Reçu ' + receipt + ' enregistré pour ' + beneficiary + '.'),
+              if (printWarning != null) ...[
+                const SizedBox(height: 8),
+                Text(printWarning),
+              ],
+            ]),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Fermer'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Fermer')),
             OutlinedButton.icon(
               onPressed: () async {
-                await _printReceipt(
-                  receiptNumber: receipt,
-                  beneficiaryName: beneficiaryName,
-                  amount: amount,
-                  paidAt: DateTime.now(),
-                  format: ReceiptFormat.a5,
-                );
+                await _printReceipt(receiptNumber: receipt,
+                  beneficiaryName: beneficiary, amount: requested,
+                  paidAt: DateTime.now(), format: ReceiptFormat.a5);
               },
               icon: const Icon(Icons.description_outlined),
               label: const Text('Reçu A5'),
             ),
             FilledButton.icon(
               onPressed: () async {
-                final prefs = await ReceiptPrintingPreferencesStore().load();
-                final posFormat = prefs.format.isPos ? prefs.format : ReceiptFormat.pos80;
-                await _printReceipt(
-                  receiptNumber: receipt,
-                  beneficiaryName: beneficiaryName,
-                  amount: amount,
-                  paidAt: DateTime.now(),
-                  format: posFormat,
-                  directToPrinter: true,
-                  preferences: prefs,
-                );
+                try {
+                  final prefs = await ReceiptPrintingPreferencesStore().load();
+                  await _printReceipt(receiptNumber: receipt,
+                    beneficiaryName: beneficiary, amount: requested,
+                    paidAt: DateTime.now(),
+                    format: prefs.format.isPos ? prefs.format : ReceiptFormat.pos80,
+                    directToPrinter: true, preferences: prefs);
+                } catch (_) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(
+                      content: Text('Paiement confirmé. Réessayez l’impression depuis les reçus.')));
+                  }
+                }
               },
               icon: const Icon(Icons.print_outlined),
               label: const Text('Imprimer POS'),
@@ -353,20 +558,12 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
           ],
         ),
       );
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error.toString().replaceFirst('Bad state: ', ''),
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Paiement enregistré, reçu ' + receipt +
+          '. Vous pourrez le retrouver dans Paiements et reçus.')));
     }
+    if (mounted) Navigator.pop(context, true);
   }
 
   Future<void> _printReceipt({
@@ -450,6 +647,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                   _payerType = value.first;
                   _outstanding = null;
                   _amount.clear();
+                  _amountEditedByUser = false;
                 });
                 _loadOutstanding();
               },
@@ -590,7 +788,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.savings_outlined),
                   title: const Text('Avoir disponible'),
-                  subtitle: const Text('Utilisez cet avoir sur les échéances sélectionnées sans créer une nouvelle recette.'),
+                  subtitle: const Text('Utilisez cet avoir sur les périodes choisies sans nouvel encaissement.'),
                   trailing: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -610,7 +808,7 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 !_loadingBalance && _payerDues.isEmpty)
               const Card(child: ListTile(
                 leading: Icon(Icons.info_outline),
-                title: Text('Aucune échéance disponible'),
+                title: Text('Aucun frais à payer'),
                 subtitle: Text('Vérifiez que l’élève est inscrit dans l’année active '
                     'et qu’un tarif est défini pour son cycle ou sa classe.'))),
             if (_payerType == _PayerType.student && _payerDues.isNotEmpty) ...[
@@ -636,18 +834,26 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                 Text('5. Sélectionner un ou plusieurs mois / trimestres',
                   style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
-                ..._payerDues.where((due) => due.feeId == _feeId).map((due) =>
-                  CheckboxListTile(
-                    dense: true, contentPadding: EdgeInsets.zero,
-                    value: _selectedDues.contains(due.id),
-                    onChanged: due.balance <= 0 || _saving
-                        ? null : (v) => _chooseDue(due, v == true),
-                    title: Text(_periodLabel(due) + (due.balance <= 0 ? ' · Soldé' : '')),
-                    subtitle: Text('Tarif : ${formatXaf(due.amountDue)} · '
-                      'Déjà payé : ${formatXaf(due.amountPaid)} · '
-                      'Reste : ${formatXaf(due.balance)}'
-                      '${_periodDeadline(due)}'),
-                  )),
+                Wrap(spacing: 8, runSpacing: 6, children: [
+                  for (final due in _payerDues.where((d) => d.feeId == _feeId))
+                    ChoiceChip(
+                      selected: _selectedDues.contains(due.id),
+                      onSelected: due.balance <= 0 || _saving ? null
+                          : (selected) => _chooseDue(due, selected),
+                      tooltip: 'Tarif : ' + formatXaf(due.amountDue) +
+                          ' · Déjà payé : ' + formatXaf(due.amountPaid) +
+                          _periodDeadline(due),
+                      label: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(_periodLabel(due),
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        Text(due.balance <= 0 ? 'Soldé'
+                          : due.amountPaid > 0 ? 'Partiel · ' + formatXaf(due.balance)
+                          : 'À payer · ' + formatXaf(due.balance),
+                          style: Theme.of(context).textTheme.labelSmall),
+                      ]),
+                    ),
+                ]),
               ],
               Card(child: ListTile(
                 title: const Text('Total des périodes sélectionnées'),
@@ -655,18 +861,21 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               )),
             ] else if (_payerType == _PayerType.family && _payerDues.isNotEmpty) ...[
-              Text('Échéances de la famille',
+              Text('Périodes à régler pour la famille',
                   style: Theme.of(context).textTheme.titleMedium),
+              const Text('Choisissez uniquement les enfants et périodes à régler.'),
               ..._payerDues.map((d) => CheckboxListTile(
                 dense: true, contentPadding: EdgeInsets.zero,
                 value: _selectedDues.contains(d.id),
                 title: Text('${d.studentName} · ${d.feeName} · ${d.periodKey}'),
                 subtitle: Text('Reste ${formatXaf(d.balance)}'),
-                onChanged: (v) => _chooseDueFamily(d, v == true),
+                onChanged: d.balance <= 0 || _saving ? null :
+                  (v) => _chooseDueFamily(d, v == true),
               )),
             ],
             TextFormField(
               controller: _amount,
+              onChanged: (_) => _amountEditedByUser = true,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Montant (FCFA) *',
@@ -742,9 +951,9 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
             const SizedBox(height: 22),
             if (!desktopForm)
               FilledButton.icon(
-                onPressed: _saving || _loadingBalance || _selectedDues.isEmpty ? null : _save,
+                onPressed: _saving || _checkingCash || _loadingBalance || _selectedDues.isEmpty ? null : _save,
                 icon: const Icon(Icons.check_circle_outline),
-                label: Text(_saving ? 'Enregistrement…' : 'Valider le paiement'),
+                label: Text(_checkingCash ? 'Vérification de la caisse…' : (_saving ? 'Enregistrement…' : 'Valider le paiement')),
               ),
         ];
         if (!desktopForm) {
@@ -793,11 +1002,11 @@ class _PaymentFormScreenState extends ConsumerState<PaymentFormScreen> {
                           ]),
                           const SizedBox(height: 10),
                           FilledButton.icon(
-                            onPressed: _saving || _loadingBalance ||
+                            onPressed: _saving || _checkingCash || _loadingBalance ||
                                     _selectedDues.isEmpty ? null : _save,
                             icon: const Icon(Icons.check_circle_outline),
-                            label: Text(_saving
-                                ? 'Enregistrement…' : 'Valider le paiement'),
+                            label: Text(_checkingCash ? 'Vérification de la caisse…'
+                                : (_saving ? 'Enregistrement…' : 'Valider le paiement')),
                           ),
                         ],
                       ),

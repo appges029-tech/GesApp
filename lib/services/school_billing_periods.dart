@@ -16,7 +16,7 @@ abstract final class SchoolBillingPeriods {
           : schoolYearEnd.year - 1;
 
   /// Recognizes common class names. The setting
-  /// billing_exam_class:<classroomId> can explicitly override this result.
+  /// `billing_exam_class:<classroomId>` can explicitly override this result.
   static bool isExamClass(String label) {
     final text = label.toLowerCase()
         .replaceAll('é', 'e').replaceAll('è', 'e')

@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/session/operator_session.dart';
+import '../finance/payment_form_screen.dart';
+import '../finance/cash_screen.dart';
+import '../finance/dues_screen.dart';
+import '../students/student_form_screen.dart';
+import '../settings/security_settings_screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_controller.dart';
 import '../../core/utils/formatters.dart';
@@ -77,6 +83,8 @@ class DashboardScreen extends ConsumerWidget {
             }),
             const SizedBox(height: 16),
           ],
+          _quickActions(context, ref),
+          const SizedBox(height: 18),
           summary.when(
             data: (d) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               _HeroBalance(netBalance: d.netBalance, revenue: d.monthRevenue, expenses: d.monthExpenses),
@@ -96,7 +104,7 @@ class DashboardScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(18),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
-                    Expanded(child: Text('Recouvrement des échéances', style: Theme.of(context).textTheme.titleMedium)),
+                    Expanded(child: Text('Suivi des paiements en retard', style: Theme.of(context).textTheme.titleMedium)),
                     Text('${(d.recoveryRate * 100).round()} %', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: scheme.primary)),
                   ]),
                   const SizedBox(height: 14),
@@ -127,6 +135,61 @@ class DashboardScreen extends ConsumerWidget {
       actions: actions,
       body: body,
     );
+  }
+  Widget _quickActions(BuildContext context, WidgetRef ref) {
+    final manager = OperatorSession.isManager;
+    final shortcuts = manager
+        ? <({IconData icon, String title, String description, Widget destination})>[
+            (icon: Icons.payments_rounded, title: 'Encaisser', description: 'Recevoir un paiement', destination: const PaymentFormScreen()),
+            (icon: Icons.person_add_alt_1_rounded, title: 'Inscrire', description: 'Ajouter un élève', destination: const StudentFormScreen()),
+            (icon: Icons.account_balance_wallet_rounded, title: 'Ma caisse', description: 'Ouvrir ou clôturer', destination: const CashScreen()),
+            (icon: Icons.warning_amber_rounded, title: 'Impayés', description: 'Voir les sommes dues', destination: const DuesScreen()),
+          ]
+        : <({IconData icon, String title, String description, Widget destination})>[
+            (icon: Icons.groups_rounded, title: 'Consulter les impayés', description: 'Suivi des paiements', destination: const DuesScreen()),
+            (icon: Icons.admin_panel_settings_rounded, title: 'Comptes gestionnaires', description: 'Gérer les accès', destination: const SecuritySettingsScreen()),
+          ];
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(manager ? 'Que souhaitez-vous faire ?' : 'Accès administrateur',
+          style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 10),
+      LayoutBuilder(builder: (context, box) {
+        final columns = box.maxWidth >= 1050 ? 4 : 2;
+        final width = (box.maxWidth - (columns - 1) * 10) / columns;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: shortcuts.map((item) => SizedBox(
+            width: width,
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () async {
+                  if (manager && !OperatorSession.hasPermission('finance.write')) return;
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => item.destination));
+                  if (context.mounted) {
+                    ref.invalidate(dashboardProvider);
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(item.icon, size: 27, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(height: 8),
+                    Text(item.title, style: const TextStyle(fontWeight: FontWeight.w800),
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 3),
+                    Text(item.description, maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall),
+                  ]),
+                ),
+              ),
+            ),
+          )).toList(),
+        );
+      }),
+    ]);
   }
 }
 

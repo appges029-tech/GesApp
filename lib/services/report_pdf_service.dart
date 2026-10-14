@@ -53,10 +53,12 @@ class ReportPdfService {
         pw.TableHelper.fromTextArray(
           headers: headers,
           data: rows.sublist(start, end),
-          headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+          headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold,
+            color: PdfColors.white, fontSize: headers.length >= 10 ? 6.8 : 8),
           headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
-          cellStyle: const pw.TextStyle(fontSize: 8.5),
-          cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          cellStyle: pw.TextStyle(fontSize: headers.length >= 10 ? 6.8 : 8.5),
+          cellPadding: pw.EdgeInsets.symmetric(horizontal:
+            headers.length >= 10 ? 2.5 : 5, vertical: 4),
           border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
         ),
       );

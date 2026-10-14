@@ -7,6 +7,7 @@ import 'package:gesapp/core/windows/windows_ui.dart';
 import 'package:gesapp/core/layout/responsive_layout.dart';
 import 'package:gesapp/core/theme/app_theme.dart';
 import 'package:gesapp/features/finance/finance_screen.dart';
+import 'package:gesapp/core/session/operator_session.dart';
 
 void main() {
   testWidgets('Windows page scaffold uses desktop header at wide width', (tester) async {
@@ -86,6 +87,13 @@ void main() {
   });
 
   testWidgets('Windows finances prioritize everyday operations on a 1366px display', (tester) async {
+    // L'encaissement est réservé à un gestionnaire authentifié.
+    OperatorSession.authenticate(
+      userId: 'windows-finance-manager',
+      displayName: 'Gestionnaire de test',
+      role: 'manager',
+    );
+    addTearDown(OperatorSession.clear);
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     tester.view.physicalSize = const Size(1366, 768);

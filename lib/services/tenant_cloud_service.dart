@@ -148,7 +148,7 @@ class TenantCloudService {
     if (result == null) return null;
     final dynamic raw = result is List ? (result.isEmpty ? null : result.first) : result;
     if (raw is! Map) return null;
-    final map = Map<String, dynamic>.from(raw as Map);
+    final map = Map<String, dynamic>.from(raw);
     final membership = TenantMembershipCache(
       organizationId: map['organization_id'].toString(),
       organizationCode: map['organization_code'].toString(),
@@ -298,7 +298,9 @@ class TenantCloudService {
     // Le code PIN hors ligne doit respecter la même séparation des écoles.
     await _tenantRepo.ensureOrganizationIsolated(cached.organizationId);
     await TenantSubscriptionAccess.instance.restore(cached.organizationId);
-    if (!TenantSubscriptionAccess.instance.isAllowed) return false;
+    if (!TenantSubscriptionAccess.instance.isAllowed) {
+      return false;
+    }
     final username = cached.username?.trim().toLowerCase();
     if (username == null || username.isEmpty) return false;
 

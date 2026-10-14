@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pdf/pdf.dart';
 
 import '../../core/layout/responsive_layout.dart';
 import '../../core/platform/pdf_output_service.dart';
@@ -11,12 +12,13 @@ import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
 import '../../data/repositories/report_repository.dart';
 import '../../services/bilan_financier_pdf_service.dart';
-import '../../services/billing_pdf_service.dart';
+import '../../services/unpaid_report_presenter.dart';
 import '../../services/document_identity.dart';
 import '../../services/document_number_service.dart';
 import '../../services/excel_export_service.dart';
 import '../../services/report_pdf_service.dart';
 import 'payment_notices_screen.dart';
+import 'billing_documents_screen.dart';
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -184,10 +186,50 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   static List<String> _expenseHeaders() => const ['Catégorie', 'Opérations', 'Total'];
   static List<String> _expenseRow(Map<String, Object?> r) => ['${r['category']}', '${r['operations']}', formatXaf(r['total'] as int)];
 
-  Future<void> _openTable({required String title, required List<String> headers, required Future<List<Map<String, Object?>>> rowsFuture, required List<String> Function(Map<String, Object?>) mapper}) async {
-    final rows = await rowsFuture;
-    if (!mounted) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => _ReportTableScreen(title: title, headers: headers, rows: rows.map(mapper).toList())));
+  Future<({String label, String? schoolYear})> _exportScope() async {
+    final years = await ref.read(schoolYearsProvider.future);
+    final year = years.where((y) => y.id == _schoolYearId ||
+        (_schoolYearId == null && y.isActive)).firstOrNull;
+    final scope = <String>[
+      if (year != null) 'Année scolaire : ${year.label}',
+      if (_cycleId != null) 'Cycle : ${(await ref.read(cyclesProvider.future))
+          .where((cycle) => cycle['id'] == _cycleId)
+          .map((cycle) => cycle['name']).firstOrNull ?? _cycleId}',
+      if (_classroomId != null) 'Classe : ${(await ref.read(classroomsProvider.future))
+          .where((room) => room.id == _classroomId)
+          .map((room) => room.name).firstOrNull ?? _classroomId}',
+      if (_familyId != null) 'Famille : ${(await ref.read(familiesProvider.future))
+          .where((family) => family.id == _familyId)
+          .map((family) => family.name).firstOrNull ?? _familyId}',
+      if (_start != null) 'Du ${_start!.day}/${_start!.month}/${_start!.year}',
+      if (_end != null) 'au ${_end!.day}/${_end!.month}/${_end!.year}',
+    ];
+    return (label: scope.join(' · '), schoolYear: year?.label);
+  }
+
+  Future<void> _openTable({
+    required String title,
+    required List<String> headers,
+    required Future<List<Map<String, Object?>>> rowsFuture,
+    required List<String> Function(Map<String, Object?>) mapper,
+  }) async {
+    try {
+      final rows = await rowsFuture;
+      final scope = await _exportScope();
+      if (!mounted) return;
+      final displayed = title == 'Impayés'
+          ? UnpaidReportPresenter.rows(rows)
+          : rows.map(mapper).toList(growable: false);
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => _ReportTableScreen(
+          title: title, headers: headers, rows: displayed,
+          scopeLabel: scope.label, schoolYearLabel: scope.schoolYear,
+        ),
+      ));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rapport indisponible : $error')));
+    }
   }
 
   Future<void> _openRecoveryPerformance(String groupBy, String title) async {
@@ -198,62 +240,36 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final rate = rawRate is num ? rawRate.toDouble() : double.tryParse('$rawRate') ?? 0;
       return ['${row['label']}', '${row['students_count']}', '${row['dues_count']}', formatXaf(row['expected'] as int), formatXaf(row['collected'] as int), formatXaf(row['outstanding'] as int), '${rate.toStringAsFixed(1)} %'];
     }).toList();
-    Navigator.push(context, MaterialPageRoute(builder: (_) => _ReportTableScreen(title: title, headers: const ['Groupe', 'Élèves', 'Échéances', 'Attendu', 'Payé', 'Reste', 'Taux'], rows: tableRows)));
+    final scope = await _exportScope();
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) =>
+      _ReportTableScreen(
+        title: title,
+        headers: const ['Groupe', 'Élèves', 'Échéances', 'Attendu', 'Payé', 'Reste', 'Taux'],
+        rows: tableRows, scopeLabel: scope.label,
+        schoolYearLabel: scope.schoolYear,
+      )));
   }
 
   Future<void> _ledger() async {
     final entries = await ref.read(reportRepositoryProvider).grandLedger(filter: _filter);
     if (!mounted) return;
     final rows = entries.map((e) => [e.date.toIso8601String().split('T').first, e.reference, e.description, e.debit == 0 ? '' : formatXaf(e.debit), e.credit == 0 ? '' : formatXaf(e.credit), formatXaf(e.balance)]).toList();
-    Navigator.push(context, MaterialPageRoute(builder: (_) => _ReportTableScreen(title: 'Livre de trésorerie', headers: const ['Date', 'Référence', 'Libellé', 'Débit', 'Crédit', 'Solde'], rows: rows)));
+    final scope = await _exportScope();
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => _ReportTableScreen(
+      title: 'Livre de trésorerie',
+      headers: const ['Date', 'Référence', 'Libellé', 'Débit', 'Crédit', 'Solde'],
+      rows: rows, scopeLabel: scope.label,
+      schoolYearLabel: scope.schoolYear,
+    )));
   }
 
   Future<void> _billing() async {
-    final dues = await ref.read(reportRepositoryProvider).billingDues(filter: _filter);
     if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: const Text('Avis d’échéance / factures')),
-          body: dues.isEmpty
-              ? const Center(child: Text('Aucune échéance pour ces filtres.'))
-              : ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: dues.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) {
-                    final due = dues[i];
-                    return Card(
-                      child: ListTile(
-                        title: Text('${due['student']} · ${due['fee']}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: Text('${due['registration_number']} · ${due['cycle']} / ${due['classroom']}\n${due['period_key']} · reste ${formatXaf(due['balance'] as int)}'),
-                        isThreeLine: true,
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (kind) => _printBilling(due['due_id'] as String, invoice: kind == 'invoice'),
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'notice', child: Text('Avis d’échéance PDF')),
-                            PopupMenuItem(value: 'invoice', child: Text('Facture détaillée PDF')),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _printBilling(String dueId, {required bool invoice}) async {
-    final data = await ref.read(reportRepositoryProvider).billingDetail(dueId);
-    final establishment = await ref.read(establishmentProvider.future);
-    final identity = await DocumentIdentity.fromEstablishment(establishment);
-    final registry = DocumentNumberService();
-    final reference = await registry.getOrCreate(type: invoice ? 'FAC' : 'ECH', entityId: dueId);
-    final bytes = await BillingPdfService().build(data: data, invoice: invoice, reference: reference, identity: identity);
-    await registry.recordFingerprint(reference: reference, bytes: bytes);
-    await outputPdf(bytes, fileName: '${invoice ? 'Facture' : 'Avis_echeance'}_$reference.pdf');
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BillingDocumentsScreen(filter: _filter),
+    ));
   }
 
   Future<void> _recovery() async {
@@ -434,7 +450,7 @@ class _BilanFinancierScreenState extends ConsumerState<_BilanFinancierScreen> {
                 const SizedBox(height: 8),
                 _kpiWrap([
                   _kpi('Attendu', formatXaf(_global!.expected), Colors.blueGrey),
-                  _kpi('Encaissé', formatXaf(_global!.allocated), Colors.green.shade700),
+                  _kpi('Imputé aux échéances', formatXaf(_global!.allocated), Colors.green.shade700),
                   _kpi('Reste à recouvrer', formatXaf(_global!.outstanding), Colors.orange.shade800),
                   _kpi('Taux de recouvrement', '${(_global!.recoveryRate * 100).toStringAsFixed(1)} %', Colors.indigo),
                   _kpi('Recettes', formatXaf(_global!.revenue), Colors.green.shade700),
@@ -445,8 +461,8 @@ class _BilanFinancierScreenState extends ConsumerState<_BilanFinancierScreen> {
                   color: _global!.cashBalance >= 0 ? Colors.green.shade50 : Colors.red.shade50,
                   child: ListTile(
                     leading: Icon(Icons.savings_outlined, color: _global!.cashBalance >= 0 ? Colors.green.shade800 : Colors.red.shade800),
-                    title: const Text('Bénéfice net de l’école', style: TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: const Text('Recettes encaissées − dépenses'),
+                    title: const Text('Solde net des flux présentés', style: TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: const Text('Recettes affichées − dépenses affichées ; hors résultat comptable complet'),
                     trailing: Text(
                       formatXaf(_global!.cashBalance),
                       style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: _global!.cashBalance >= 0 ? Colors.green.shade800 : Colors.red.shade800),
@@ -588,17 +604,28 @@ class _BilanFinancierScreenState extends ConsumerState<_BilanFinancierScreen> {
 }
 
 class _ReportTableScreen extends ConsumerWidget {
-  const _ReportTableScreen({required this.title, required this.headers, required this.rows});
+  const _ReportTableScreen({
+    required this.title, required this.headers, required this.rows,
+    this.scopeLabel = '', this.schoolYearLabel,
+  });
   final String title;
   final List<String> headers;
   final List<List<String>> rows;
+  final String scopeLabel;
+  final String? schoolYearLabel;
 
   Future<void> _exportPdf(BuildContext context, WidgetRef ref) async {
     final establishment = await ref.read(establishmentProvider.future);
-    final identity = await DocumentIdentity.fromEstablishment(establishment);
+    final rawIdentity = await DocumentIdentity.fromEstablishment(establishment);
+    final identity = schoolYearLabel == null ? rawIdentity
+        : rawIdentity.forSchoolYear(schoolYearLabel!);
     final registry = DocumentNumberService();
     final reference = await registry.getOrCreate(type: 'RAP', entityId: '$title:${DateTime.now().microsecondsSinceEpoch}');
-    final bytes = await ReportPdfService().table(title: title, headers: headers, rows: rows, identity: identity, reference: reference);
+    final bytes = await ReportPdfService().table(
+      title: title, headers: headers, rows: rows,
+      identity: identity, reference: reference, subtitle: scopeLabel,
+      pageFormat: headers.length >= 7 ? PdfPageFormat.a4.landscape : PdfPageFormat.a4,
+    );
     await registry.recordFingerprint(reference: reference, bytes: bytes);
     await outputPdf(bytes, fileName: '${title.replaceAll(' ', '_')}_$reference.pdf');
   }
@@ -607,7 +634,7 @@ class _ReportTableScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
         appBar: AppBar(title: Text(title), actions: [
           IconButton(tooltip: 'PDF', icon: const Icon(Icons.picture_as_pdf_outlined), onPressed: rows.isEmpty ? null : () => _exportPdf(context, ref)),
-          IconButton(tooltip: 'Excel', icon: const Icon(Icons.table_view_outlined), onPressed: rows.isEmpty ? null : () async {final path=await ExcelExportService().export(fileName:title,headers:headers,rows:rows);if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Export Excel enregistré : $path'),duration:const Duration(seconds:5)));}),
+          IconButton(tooltip: 'Excel', icon: const Icon(Icons.table_view_outlined), onPressed: rows.isEmpty ? null : () async {final path=await ExcelExportService().export(fileName:title,headers:headers,rows:[if(scopeLabel.isNotEmpty) [scopeLabel, ...List<String>.filled(headers.length - 1, '')], ...rows]);if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Export Excel enregistré : $path'),duration:const Duration(seconds:5)));}),
         ]),
         body: rows.isEmpty ? const Center(child: Text('Aucune donnée')) : ResponsiveDataTable(headers: headers, rows: rows),
       );

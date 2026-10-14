@@ -28,6 +28,17 @@ class DocumentIdentity {
   final Uint8List? logoBytes;
   final String generatedBy;
 
+  DocumentIdentity forSchoolYear(String label) => DocumentIdentity(
+    name: name,
+    address: address,
+    phone: phone,
+    email: email,
+    approvalNumber: approvalNumber,
+    schoolYear: label,
+    logoBytes: logoBytes,
+    generatedBy: generatedBy,
+  );
+
   static Future<DocumentIdentity> fromEstablishment(EstablishmentData? data) async {
     Uint8List? logo;
     final path = data?.logoPath.trim() ?? '';

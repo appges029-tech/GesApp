@@ -84,6 +84,20 @@ function isStrongPassword(value: string) {
     /[0-9]/.test(value);
 }
 
+// Paginer côté serveur : la limite PostgREST de 1000 lignes ne doit jamais
+// dissimuler les demandes, écoles ou comptes plus anciens.
+async function readAll(query: any, pageSize = 500): Promise<any[]> {
+  const rows: any[] = [];
+  for (let page = 0; page < 40; page++) {
+    const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) throw error;
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < pageSize) return rows;
+  }
+  throw new Error("results_limit_exceeded");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsFor(req) });
   if (req.method !== "POST") return json(req, { error: "method_not_allowed" }, 405);
@@ -191,60 +205,184 @@ Deno.serve(async (req) => {
     }
 
     if (action === "overview") {
-      const [orgsRes, membersRes, devicesRes, syncRes, eventsRes, requestsRes] = await Promise.all([
-        server.from("organizations").select("id,code,name,active,subscription_status,subscription_cycle,subscription_started_at,subscription_expires_at,subscription_confirmed_at,created_at,updated_at").order("created_at", { ascending: false }),
-        server.from("organization_members").select("id,organization_id,user_id,role,username,display_name,active,status,must_change_password,created_at"),
-        server.from("devices").select("id,organization_id,user_id,device_key,platform,app_version,last_seen_at,created_at").order("last_seen_at", { ascending: false }),
-        server.from("sync_metadata").select("organization_id,revision,size_bytes,updated_at,uploaded_at,current_path"),
+      const [orgs, members, devices, syncs, requests, eventsRes] = await Promise.all([
+        readAll(server.from("organizations").select(
+          "id,code,name,active,subscription_status,subscription_cycle,subscription_started_at,subscription_expires_at,subscription_confirmed_at,created_at,updated_at"
+        ).order("id")),
+        readAll(server.from("organization_members").select(
+          "id,organization_id,user_id,role,username,display_name,active,status,must_change_password,created_at"
+        ).order("id")),
+        readAll(server.from("devices").select(
+          "id,organization_id,user_id,device_key,platform,app_version,last_seen_at,created_at"
+        ).order("id")),
+        readAll(server.from("sync_metadata").select(
+          "organization_id,revision,size_bytes,updated_at,uploaded_at,current_path"
+        ).order("organization_id")),
+        readAll(server.from("admin_registration_requests").select(
+          "id,user_id,email,display_name,school_name,preferred_code,status,created_at,reviewed_at,review_note"
+        ).eq("status", "pending").order("created_at", { ascending: true }).order("id")),
         server.from("platform_activity_events")
           .select("id,organization_id,actor_user_id,event_type,module,message,metadata,created_at")
-          .order("created_at", { ascending: false }).limit(80),
-        server.from("admin_registration_requests").select("id,user_id,email,display_name,school_name,preferred_code,status,created_at,reviewed_at,review_note").order("created_at", { ascending: false }).limit(100),
+          .order("created_at", { ascending: false }).limit(150),
       ]);
-      for (const result of [orgsRes, membersRes, devicesRes, syncRes, eventsRes, requestsRes]) {
-        if (result.error) return json(req, { error: result.error.message }, 500);
-      }
-      const members = membersRes.data ?? [], devices = devicesRes.data ?? [], syncs = syncRes.data ?? [];
+      if (eventsRes.error) return json(req, { error: eventsRes.error.message }, 500);
       const now = Date.now();
-      const organizations = (orgsRes.data ?? []).map((org) => {
+      const events = eventsRes.data ?? [];
+      const organizations = orgs.map((org) => {
         const om = members.filter((m) => m.organization_id === org.id);
         const od = devices.filter((d) => d.organization_id === org.id);
-        const sync = syncs.find((s) => s.organization_id === org.id) ?? null;
+        const sync = syncs.find((row) => row.organization_id === org.id) ?? null;
         const paidUntil = org.subscription_expires_at ? Date.parse(org.subscription_expires_at) : 0;
-        const subscriptionEffectiveStatus = !org.active ? "suspended" : org.subscription_status === "legacy" ? "legacy" : org.subscription_status === "active" && paidUntil > now ? "active" : "expired";
+        const subscriptionEffectiveStatus = !org.active ? "suspended"
+          : org.subscription_status === "legacy" ? "legacy"
+          : org.subscription_status === "active" && paidUntil > now ? "active" : "expired";
+        const syncEvent = events.find((ev) => ev.organization_id === org.id
+          && ["sync_error", "sync_uploaded", "sync_restored"].includes(ev.event_type));
         return {
           subscription_effective_status: subscriptionEffectiveStatus,
           ...org,
           admin: om.find((m) => m.role === "admin") ?? null,
           managers: om.filter((m) => m.role === "manager"),
           device_count: od.length,
-          online_device_count: od.filter((d) => d.last_seen_at && now - new Date(d.last_seen_at).getTime() <= 120000).length,
-          last_seen_at: od.length ? od[0].last_seen_at : null,
-          sync,
+          online_device_count: od.filter((d) => d.last_seen_at
+            && now - new Date(d.last_seen_at).getTime() <= 120000).length,
+          last_seen_at: od.reduce((acc: string | null, d) =>
+            !acc || (d.last_seen_at && d.last_seen_at > acc) ? (d.last_seen_at ?? acc) : acc, null),
+          sync, latest_sync_event: syncEvent ?? null,
         };
       });
-      const online = devices.filter((d) => d.last_seen_at && now - new Date(d.last_seen_at).getTime() <= 120000).length;
-      const recentActivity = (eventsRes.data ?? []).map((event) => {
+      const recentActivity = events.map((event) => {
         const org = organizations.find((o) => o.id === event.organization_id);
-        return {
-          ...event,
-          organization_name: org?.name ?? null,
-          organization_code: org?.code ?? null,
-        };
+        return { ...event, organization_name: org?.name ?? null, organization_code: org?.code ?? null };
       });
+      const active = organizations.filter((o) => o.subscription_effective_status === "active");
       return json(req, {
         generated_at: new Date().toISOString(),
         totals: {
           schools: organizations.length,
           active_schools: organizations.filter((o) => o.active).length,
-          managers: members.filter((m) => m.role === "manager" && m.active).length,
+          managers: members.filter((m) => m.role === "manager" && m.active && m.status === "active").length,
           devices: devices.length,
-          online_devices: online,
+          online_devices: devices.filter((d) => d.last_seen_at
+            && now - new Date(d.last_seen_at).getTime() <= 120000).length,
+          subscriptions_active: active.length,
+          subscriptions_expired: organizations.filter((o) => o.subscription_effective_status === "expired").length,
+          requests_pending: requests.length,
+          sync_errors_recent: organizations.filter((o) => o.latest_sync_event?.event_type === "sync_error").length,
         },
         organizations,
-        pending_requests: (requestsRes.data ?? []).filter((request) => request.status === "pending"),
+        pending_requests: requests,
         recent_activity: recentActivity,
       });
+    }
+
+    if (action === "organization_detail") {
+      const organizationId = String(body.organization_id ?? "");
+      if (!organizationId) return json(req, { error: "organization_id_requis" }, 400);
+      const [org, members, devices, sync, payments, events] = await Promise.all([
+        server.from("organizations").select(
+          "id,code,name,active,subscription_status,subscription_cycle,subscription_started_at,subscription_expires_at,subscription_confirmed_at,created_at,updated_at"
+        ).eq("id", organizationId).maybeSingle(),
+        server.from("organization_members").select(
+          "id,organization_id,role,username,display_name,active,status,must_change_password,created_at"
+        ).eq("organization_id", organizationId).order("role"),
+        server.from("devices").select(
+          "id,user_id,device_key,platform,app_version,last_seen_at,created_at"
+        ).eq("organization_id", organizationId).order("last_seen_at", { ascending: false }),
+        server.from("sync_metadata").select(
+          "revision,size_bytes,updated_at,uploaded_at,checksum_sha256"
+        ).eq("organization_id", organizationId).maybeSingle(),
+        server.from("subscription_payments").select(
+          "id,cycle,starts_at,expires_at,confirmed_at,reference,event_type"
+        ).eq("organization_id", organizationId).order("confirmed_at", { ascending: false }).limit(100),
+        server.from("platform_activity_events").select(
+          "id,event_type,module,message,created_at"
+        ).eq("organization_id", organizationId).order("created_at", { ascending: false }).limit(50),
+      ]);
+      for (const result of [org, members, devices, sync, payments, events]) {
+        if (result.error) return json(req, { error: result.error.message }, 500);
+      }
+      if (!org.data) return json(req, { error: "ecole_introuvable" }, 404);
+      return json(req, {
+        organization: org.data,
+        members: members.data ?? [], devices: devices.data ?? [],
+        sync: sync.data, subscription_payments: payments.data ?? [],
+        events: events.data ?? [],
+      });
+    }
+
+    if (action === "registration_history") {
+      const offset = Math.max(0, Math.min(10000, Number(body.offset ?? 0) || 0));
+      const { data, error } = await server.from("admin_registration_requests").select(
+        "id,email,display_name,school_name,status,created_at,reviewed_at,review_note,organization_id"
+      ).in("status", ["approved", "rejected"])
+        .order("reviewed_at", { ascending: false }).range(offset, offset + 99);
+      if (error) return json(req, { error: error.message }, 500);
+      return json(req, { items: data ?? [], offset, has_more: (data ?? []).length === 100 });
+    }
+
+    if (action === "activity_history") {
+      const organizationId = String(body.organization_id ?? "").trim();
+      const offset = Math.max(0, Math.min(10000, Number(body.offset ?? 0) || 0));
+      let query = server.from("platform_activity_events")
+        .select("id,organization_id,actor_user_id,event_type,module,message,created_at")
+        .order("created_at", { ascending: false });
+      if (organizationId) query = query.eq("organization_id", organizationId);
+      const { data, error } = await query.range(offset, offset + 99);
+      if (error) return json(req, { error: error.message }, 500);
+      return json(req, { items: data ?? [], offset, has_more: (data ?? []).length === 100 });
+    }
+
+    if (action === "set_manager_active") {
+      const organizationId = String(body.organization_id ?? "");
+      const memberId = String(body.member_id ?? "");
+      const active = body.active === true;
+      if (!organizationId || !memberId) return json(req, { error: "identifiant_requis" }, 400);
+      const { data: member, error: lookupError } = await server.from("organization_members")
+        .select("id,user_id,display_name,role,active,organization_id")
+        .eq("id", memberId).eq("organization_id", organizationId).maybeSingle();
+      if (lookupError || !member || member.role !== "manager") {
+        return json(req, { error: "gestionnaire_introuvable" }, 404);
+      }
+      const { error } = await server.from("organization_members")
+        .update({ active, status: active ? "active" : "disabled", updated_at: new Date().toISOString() })
+        .eq("id", memberId).eq("organization_id", organizationId).eq("role", "manager");
+      if (error) return json(req, { error: error.message }, 409);
+      await server.from("platform_activity_events").insert({
+        organization_id: organizationId, actor_user_id: admin.user_id,
+        event_type: active ? "manager_activated" : "manager_disabled",
+        module: "security", message: active ? "Gestionnaire réactivé" : "Gestionnaire désactivé",
+        metadata: { member_id: memberId },
+      });
+      return json(req, { ok: true });
+    }
+
+    if (action === "reset_manager_password") {
+      const organizationId = String(body.organization_id ?? "");
+      const memberId = String(body.member_id ?? "");
+      const password = String(body.temporary_password ?? "");
+      if (!organizationId || !memberId || !isStrongPassword(password)) {
+        return json(req, { error: "mot_de_passe_ou_compte_invalide" }, 400);
+      }
+      const { data: member, error: lookupError } = await server.from("organization_members")
+        .select("id,user_id,role").eq("id", memberId)
+        .eq("organization_id", organizationId).maybeSingle();
+      if (lookupError || !member || member.role !== "manager") {
+        return json(req, { error: "gestionnaire_introuvable" }, 404);
+      }
+      const { error: changeError } = await server.auth.admin.updateUserById(member.user_id, { password });
+      if (changeError) return json(req, { error: changeError.message }, 409);
+      const { error: memberError } = await server.from("organization_members")
+        .update({ must_change_password: true, updated_at: new Date().toISOString() })
+        .eq("id", memberId).eq("organization_id", organizationId);
+      if (memberError) return json(req, { error: "password_changed_membership_update_failed" }, 500);
+      await server.from("platform_activity_events").insert({
+        organization_id: organizationId, actor_user_id: admin.user_id,
+        event_type: "manager_password_reset", module: "security",
+        message: "Mot de passe provisoire du gestionnaire renouvelé",
+        metadata: { member_id: memberId },
+      });
+      return json(req, { ok: true });
     }
 
     if (action === "approve_request") {
@@ -283,10 +421,22 @@ Deno.serve(async (req) => {
     if (action === "renew_subscription") {
       const organizationId = String(body.organization_id ?? "");
       const cycle = String(body.subscription_cycle ?? "");
+      // La référence est conservée pour compatibilité avec d'anciens clients.
+      // La nouvelle console exige son renseignement avant l'activation.
+      const reference = String(body.reference ?? "").trim().slice(0, 200);
       if (!organizationId || !["monthly","annual"].includes(cycle)) return json(req, { error: "abonnement_invalide" }, 400);
+      if (reference) {
+        const { data: duplicate, error: duplicateError } = await server
+          .from("subscription_payments").select("id")
+          .eq("organization_id", organizationId).eq("reference", reference).limit(1);
+        if (duplicateError) return json(req, { error: duplicateError.message }, 500);
+        if ((duplicate ?? []).length > 0) {
+          return json(req, { error: "reference_paiement_deja_utilisee" }, 409);
+        }
+      }
       const { data, error } = await server.rpc("admin_confirm_subscription", {
         p_organization_id: organizationId, p_cycle: cycle,
-        p_approver: admin.user_id, p_reference: String(body.reference ?? "").slice(0, 200),
+        p_approver: admin.user_id, p_reference: reference,
       });
       if (error) return json(req, { error: error.message }, 409);
       return json(req, { ok: true, subscription: data });
