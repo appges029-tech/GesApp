@@ -56,8 +56,9 @@ class SettingsScreen extends StatelessWidget {
           WindowsModuleGrid(children: [
             _tile(context, Icons.cloud_sync_outlined, 'Compte & synchronisation', 'Tenant Supabase, état cloud et synchronisation automatique', const CloudSyncScreen()),
             _tile(context, Icons.shield_outlined, 'Sécurité', 'Administrateur et comptes gestionnaires', const SecuritySettingsScreen()),
-            if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
-              _tile(context, Icons.fingerprint_rounded, 'Schéma et empreinte', 'Déverrouillage rapide sur Android', const QuickUnlockSettingsScreen()),
+            _tile(context, Icons.fingerprint_rounded, 'Schéma et empreinte', 'Déverrouillage rapide sur Android', const QuickUnlockSettingsScreen()),
+            _tile(context, Icons.history_outlined, 'Journal d’audit', 'Opérations sensibles, annulations et traçabilité', const AuditLogScreen()),
+            _tile(context, Icons.health_and_safety_outlined, 'Diagnostic des données', 'Contrôler la cohérence SQLite et comptable', const DataIntegrityScreen()),
             if (OperatorSession.isManager)
               _tile(context, Icons.backup_outlined, 'Sauvegarde', 'Sauvegarde locale, restauration et import/export JSON', const BackupScreen()),
           ]),
