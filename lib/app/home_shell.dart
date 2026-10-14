@@ -78,10 +78,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   void _select(int value) {
     if (value < 0 || value >= _entries.length) return;
-    setState(() {
-      _index = value;
-      _visitedModules.add(value);
-    });
+    setState(() => _index = value);
     unawaited(PlatformTelemetryService.instance.moduleOpened(_entries[value].label));
   }
 
@@ -148,7 +145,35 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                               style: const TextStyle(fontWeight: FontWeight.w700))),
                           ],
                         ),
-                      ),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null && mounted) _select(selected);
+  }
+
+  Widget _pageContent(List<Widget> pages) {
+    final content = IndexedStack(index: _index, children: pages);
+    if (!OperatorSession.isAdmin) return content;
+    return Column(
+      children: [
+        Material(
+          color: Theme.of(context).colorScheme.secondaryContainer,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              child: Row(
+                children: [
+                  const Icon(Icons.visibility_outlined, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Mode Administrateur — consultation uniquement. Les données métier ne peuvent pas être modifiées.',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   )).toList(),
                 ),
@@ -182,47 +207,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         final mobileSelected = _mobileIndexes.indexOf(_index);
         return Scaffold(
           body: _pageContent(pages),
-          bottomNavigationBar: GlassTabBar.bottom(
-            selectedIndex: mobileSelected < 0 ? 4 : mobileSelected,
-            onTabSelected: (value) {
-              if (value == 4) {
-                _showMore(entries);
-              } else {
-                _select(_mobileIndexes[value]);
-              }
-            },
-            tabs: const [
-              GlassTab(
-                icon: Icon(Icons.space_dashboard_outlined),
-                activeIcon: Icon(Icons.space_dashboard_rounded),
-                label: 'Accueil',
-                glowColor: AppColors.primary,
-              ),
-              GlassTab(
-                icon: Icon(Icons.school_outlined),
-                activeIcon: Icon(Icons.school_rounded),
-                label: 'Élèves',
-                glowColor: AppColors.primary,
-              ),
-              GlassTab(
-                icon: Icon(Icons.account_balance_wallet_outlined),
-                activeIcon: Icon(Icons.account_balance_wallet_rounded),
-                label: 'Finances',
-                glowColor: AppColors.primary,
-              ),
-              GlassTab(
-                icon: Icon(Icons.analytics_outlined),
-                activeIcon: Icon(Icons.analytics_rounded),
-                label: 'Rapports',
-                glowColor: AppColors.primary,
-              ),
-              GlassTab(
-                icon: Icon(Icons.grid_view_outlined),
-                activeIcon: Icon(Icons.grid_view_rounded),
-                label: 'Plus',
-                glowColor: AppColors.accent,
-              ),
-            ],
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(border: Border(top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .7)))),
+            child: NavigationBar(
+              selectedIndex: mobileSelected < 0 ? 4 : mobileSelected,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              onDestinationSelected: (value) {
+                if (value == 4) {
+                  _showMore(entries);
+                } else {
+                  _select(_mobileIndexes[value]);
+                }
+              },
+              destinations: mobileDestinations,
+            ),
           ),
         );
       }

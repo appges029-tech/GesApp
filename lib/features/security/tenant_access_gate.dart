@@ -12,7 +12,6 @@ import '../../services/tenant_cloud_service.dart';
 import '../../services/cloud_snapshot_service.dart';
 import '../../app/home_shell.dart';
 import '../../app/app_lock_gate.dart';
-import '../../app/quick_unlock_gate.dart';
 import 'super_admin_console_screen.dart';
 
 class TenantAccessGate extends StatefulWidget {

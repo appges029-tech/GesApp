@@ -44,51 +44,6 @@ class SuperAdminService {
     return _invoke({'action': 'overview'});
   }
 
-  Future<Map<String, dynamic>> organizationDetail(String organizationId) =>
-      _invoke({'action': 'organization_detail', 'organization_id': organizationId});
-
-  Future<Map<String, dynamic>> registrationHistory({int offset = 0}) =>
-      _invoke({'action': 'registration_history', 'offset': offset});
-
-  Future<Map<String, dynamic>> activityHistory({
-    String? organizationId,
-    int offset = 0,
-  }) => _invoke({
-    'action': 'activity_history',
-    'organization_id': organizationId ?? '',
-    'offset': offset,
-  });
-
-  Future<void> setManagerActive({
-    required String organizationId,
-    required String memberId,
-    required bool active,
-  }) async {
-    await _invoke({
-      'action': 'set_manager_active',
-      'organization_id': organizationId,
-      'member_id': memberId,
-      'active': active,
-    });
-  }
-
-  Future<void> resetManagerPassword({
-    required String organizationId,
-    required String memberId,
-    required String temporaryPassword,
-  }) async {
-    if (!_isStrongPassword(temporaryPassword)) {
-      throw ArgumentError('Mot de passe temporaire : 10 caractères, une '
-          'majuscule, une minuscule et un chiffre sont requis.');
-    }
-    await _invoke({
-      'action': 'reset_manager_password',
-      'organization_id': organizationId,
-      'member_id': memberId,
-      'temporary_password': temporaryPassword,
-    });
-  }
-
   Future<Map<String, dynamic>> createSchool({
     required String name,
     String? code,
@@ -98,15 +53,7 @@ class SuperAdminService {
     required String managerUsername,
     required String managerName,
     required String managerPassword,
-    required String subscriptionCycle,
   }) {
-    if (!_isStrongPassword(administratorPassword) ||
-        !_isStrongPassword(managerPassword)) {
-      throw ArgumentError(
-        'Les mots de passe temporaires doivent contenir au moins 10 caractères, '
-        'avec une majuscule, une minuscule et un chiffre.',
-      );
-    }
     return _invoke({
       'action': 'create_school',
       'name': name.trim(),
@@ -117,34 +64,8 @@ class SuperAdminService {
       'manager_username': managerUsername.trim(),
       'manager_name': managerName.trim(),
       'manager_password': managerPassword,
-      'subscription_cycle': subscriptionCycle,
     });
   }
-
-  Future<Map<String, dynamic>> approveRequest(String requestId, String cycle) =>
-      _invoke({
-        'action': 'approve_request',
-        'request_id': requestId,
-        'subscription_cycle': cycle,
-      });
-
-  Future<Map<String, dynamic>> rejectRequest(String requestId, {String note = ''}) =>
-      _invoke({
-        'action': 'reject_request',
-        'request_id': requestId,
-        'note': note,
-      });
-
-  Future<Map<String, dynamic>> renewSubscription(
-    String organizationId,
-    String cycle, {
-    String reference = '',
-  }) => _invoke({
-        'action': 'renew_subscription',
-        'organization_id': organizationId,
-        'subscription_cycle': cycle,
-        'reference': reference,
-      });
 
   Future<Map<String, dynamic>> setSchoolActive(
     String organizationId,
@@ -197,12 +118,6 @@ class SuperAdminService {
     return data;
   }
 
-  bool _isStrongPassword(String value) =>
-      value.length >= 10 &&
-      RegExp(r'[a-z]').hasMatch(value) &&
-      RegExp(r'[A-Z]').hasMatch(value) &&
-      RegExp(r'[0-9]').hasMatch(value);
-
   Map<String, dynamic> _map(dynamic value) {
     if (value is Map<String, dynamic>) return value;
     if (value is Map) return Map<String, dynamic>.from(value);
@@ -221,9 +136,6 @@ class SuperAdminService {
       'acces_refuse' => 'Ce compte n’est pas autorisé comme Super Admin.',
       'donnees_ecole_ou_admin_invalides' =>
         'Vérifiez le nom de l’école, l’administrateur et son mot de passe.',
-      'abonnement_invalide' => 'Choisissez un abonnement mensuel ou annuel.',
-      'demande_introuvable' => 'Cette demande n’est plus disponible.',
-      'email_administrateur_non_confirme' => 'Le candidat doit confirmer son adresse e-mail.',
       'donnees_gestionnaire_invalides' =>
         'Vérifiez l’identifiant, le nom et le mot de passe du gestionnaire.',
       _ => raw,
