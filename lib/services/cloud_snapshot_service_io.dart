@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
@@ -59,7 +58,9 @@ class CloudSnapshotService {
 
   Future<void> resolveConflictUsingCloud() async {
     if (OperatorSession.organizationId != null &&
-        !TenantSubscriptionAccess.instance.isAllowed) return;
+        !TenantSubscriptionAccess.instance.isAllowed) {
+      return;
+    }
     if (_running || !OperatorSession.isAuthenticated || !SupabaseBootstrap.isInitialized) return;
     final orgId = OperatorSession.organizationId;
     if (orgId == null) return;
@@ -123,7 +124,9 @@ class CloudSnapshotService {
 
   Future<void> resolveConflictKeepingLocal() async {
     if (OperatorSession.organizationId != null &&
-        !TenantSubscriptionAccess.instance.isAllowed) return;
+        !TenantSubscriptionAccess.instance.isAllowed) {
+      return;
+    }
     if (!OperatorSession.isManager) {
       status.value = const CloudSyncStatus(
         state: 'error',

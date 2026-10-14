@@ -63,14 +63,14 @@ class BilanFinancierPdfService {
           if ((reference ?? '').isNotEmpty) pw.Text('Référence : $reference', style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey700)),
           pw.SizedBox(height: 3),
           pw.Text(
-            periodLabel ?? 'Situation complète des recettes, dépenses et du bénéfice de l’établissement.',
+            periodLabel ?? 'Situation des recettes, dépenses et du solde des flux présentés.',
             style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
           ),
           pw.SizedBox(height: 16),
           _sectionTitle('Indicateurs clés'),
           _kpiGrid(global),
           pw.SizedBox(height: 20),
-          _sectionTitle('Évolution des recettes, dépenses et du bénéfice (${monthlyTrend.length} mois dans la période)'),
+          _sectionTitle('Évolution des recettes, dépenses et du solde (${monthlyTrend.length} mois dans la période)'),
           pw.SizedBox(height: 8),
           _trendChart(monthlyTrend),
           pw.SizedBox(height: 10),
@@ -105,8 +105,8 @@ class BilanFinancierPdfService {
               borderRadius: pw.BorderRadius.circular(6),
             ),
             child: pw.Text(
-              'Le bénéfice net correspond aux recettes encaissées diminuées des dépenses approuvées sur la période '
-              '(hors échéances non encore recouvrées). Document généré automatiquement depuis GesApp.',
+              'Le solde présenté correspond aux recettes comptées par ce rapport moins les dépenses comptées sur la période ; '
+              'il ne constitue pas à lui seul un résultat net comptable ou un solde de caisse certifié. Document généré depuis GesApp.',
               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
             ),
           ),
@@ -169,13 +169,13 @@ class BilanFinancierPdfService {
   pw.Widget _kpiGrid(FinancialReportSummary s) {
     final cards = [
       _kpiCard('Attendu', formatXaf(s.expected), PdfColors.blueGrey700),
-      _kpiCard('Encaissé', formatXaf(s.allocated), _revenueColor),
+      _kpiCard('Imputé aux échéances', formatXaf(s.allocated), _revenueColor),
       _kpiCard('Reste à recouvrer', formatXaf(s.outstanding), PdfColors.orange800),
       _kpiCard('Taux de recouvrement', '${(s.recoveryRate * 100).toStringAsFixed(1)} %', _balanceColor),
       _kpiCard('Recettes encaissées', formatXaf(s.revenue), _revenueColor),
       _kpiCard('Dépenses', formatXaf(s.expenses), _expenseColor),
       _kpiCard(
-        'Bénéfice net de l’école',
+        'Solde net des flux présentés',
         formatXaf(s.cashBalance),
         s.cashBalance >= 0 ? _revenueColor : _expenseColor,
         emphasize: true,

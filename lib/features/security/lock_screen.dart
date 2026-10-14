@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/repository_providers.dart';
+import '../../core/db/app_database.dart';
 import '../../data/repositories/security_repository.dart';
+import '../../data/repositories/tenant_repository.dart';
+import '../../services/device_quick_unlock_service.dart';
+import 'quick_unlock_challenge.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
   const LockScreen({super.key, required this.onUnlocked});
@@ -15,6 +19,8 @@ class LockScreen extends ConsumerStatefulWidget {
 class _LockScreenState extends ConsumerState<LockScreen> {
   final _pin = TextEditingController();
   List<AppUser> _users = const [];
+  TenantMembershipCache? _cachedManager;
+  DeviceUnlockProfile _quick = const DeviceUnlockProfile(hasPattern: false, biometricEnabled: false);
   String? _selectedUserId;
   String? _error;
   bool _checking = false;
@@ -28,12 +34,63 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
   Future<void> _loadUsers() async {
     final users = await ref.read(securityRepositoryProvider).users(activeOnly: true);
+    final cached = await TenantRepository(AppDatabase.instance).cachedMembership();
+    final profile = cached != null && cached.active && cached.isManager && !cached.mustChangePassword
+        ? await DeviceQuickUnlockService.instance.profile(cached.organizationId, cached.cloudUserId)
+        : const DeviceUnlockProfile(hasPattern: false, biometricEnabled: false);
     if (!mounted) return;
     setState(() {
       _users = users;
+      _cachedManager = cached;
+      _quick = profile;
       _selectedUserId = users.isEmpty ? null : users.first.id;
       _loading = false;
     });
+  }
+
+  bool get _quickAvailable {
+    final cached = _cachedManager;
+    if (!_quick.enabled || cached == null || !cached.active ||
+        !cached.isManager || cached.mustChangePassword) return false;
+    for (final user in _users) {
+      if (user.id == _selectedUserId && user.role == 'manager' &&
+          user.username.toLowerCase() == cached.username?.toLowerCase()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _showQuickUnlock() async {
+    final userId = _selectedUserId;
+    final cached = _cachedManager;
+    if (_checking || !_quickAvailable || userId == null || cached == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom),
+        child: QuickUnlockChallenge(
+          organizationId: cached.organizationId,
+          cloudUserId: cached.cloudUserId,
+          profile: _quick,
+          verifyAndUnlock: (verify) async {
+            if (!mounted || _selectedUserId != userId) return false;
+            final result = await ref.read(securityRepositoryProvider)
+                .authenticateWithDeviceUnlock(
+              userId: userId, verify: verify);
+            return result.success;
+          },
+          onUnlocked: () {
+            if (sheetContext.mounted) Navigator.pop(sheetContext);
+            if (mounted) widget.onUnlocked();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _submit() async {
@@ -101,6 +158,17 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                     decoration: InputDecoration(errorText: _error, hintText: 'PIN ou mot de passe', counterText: ''),
                     onSubmitted: (_) => _submit(),
                   ),
+                  if (_quickAvailable) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _checking ? null : _showQuickUnlock,
+                        icon: const Icon(Icons.fingerprint),
+                        label: const Text('Schéma ou empreinte digitale'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,

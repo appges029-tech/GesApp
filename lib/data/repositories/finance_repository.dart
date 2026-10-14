@@ -127,6 +127,193 @@ class FinanceRepository {
     });
   }
 
+  /// One-step setup for everyday school fees.
+  /// Category, applicable target and tariff are committed atomically:
+  /// no half-configured category remains if the amount or scope is invalid.
+  Future<void> createFeeWithTariff({
+    required String name,
+    required String periodicity,
+    required int amount,
+    String? cycleId,
+    String? classroomId,
+    DateTime? validFrom,
+  }) async {
+    _requireDirector();
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw ArgumentError('Indiquez le nom des frais.');
+    if (!const {'mensuelle', 'trimestrielle', 'annuelle', 'unique'}
+        .contains(periodicity)) {
+      throw ArgumentError('Choisissez une périodicité valide.');
+    }
+    if (amount <= 0) throw ArgumentError('Le montant doit être positif.');
+    if ((cycleId == null) == (classroomId == null)) {
+      throw ArgumentError('Choisissez un cycle ou une classe.');
+    }
+    final db = _database.db;
+    final now = DateTime.now().toIso8601String();
+    final feeId = _uuid.v4();
+    final tariffId = _uuid.v4();
+    final effective = (validFrom ?? DateTime.now()).toIso8601String();
+    await db.transaction((txn) async {
+      final duplicates = firstIntValue(await txn.rawQuery(
+        'SELECT COUNT(*) FROM fee_categories WHERE lower(name)=lower(?) AND active=1',
+        [trimmed])) ?? 0;
+      if (duplicates > 0) {
+        throw StateError('Ces frais existent déjà. Modifiez leur tarif dans la grille.');
+      }
+      final exists = firstIntValue(await txn.rawQuery(
+        classroomId == null
+          ? 'SELECT COUNT(*) FROM cycles WHERE id=? AND active=1'
+          : 'SELECT COUNT(*) FROM classrooms WHERE id=? AND active=1',
+        [classroomId ?? cycleId])) ?? 0;
+      if (exists == 0) {
+        throw StateError('Le cycle ou la classe sélectionné n’existe plus.');
+      }
+      await txn.insert('fee_categories', {
+        'id': feeId, 'name': trimmed, 'periodicity': periodicity,
+        'active': 1, 'created_at': now, 'updated_at': now,
+      });
+      await txn.insert('fee_grid', {
+        'id': tariffId, 'fee_id': feeId, 'cycle_id': cycleId,
+        'classroom_id': classroomId, 'amount': amount,
+        'valid_from': effective, 'created_at': now,
+      });
+      for (final event in [
+        {'type': 'fee_category', 'id': feeId,
+          'value': '$trimmed/$periodicity'},
+        {'type': 'fee_grid', 'id': tariffId,
+          'value': '$feeId/$cycleId/$classroomId/$amount/$effective'},
+      ]) {
+        await txn.insert('audit_log', {
+          'entity_type': event['type'],
+          'entity_id': event['id'],
+          'action': 'create',
+          'new_value': event['value'],
+          'operator_name': OperatorSession.current,
+          'operator_id': OperatorSession.userId,
+          'operator_role': OperatorSession.role,
+          'created_at': now,
+        });
+      }
+    });
+    // The normal lazy reconciliation also handles existing pupils. Avoid
+    // reporting a successful transaction as an error if recomputation fails.
+    try {
+      final yearId = await _activeSchoolYearId(db);
+      if (yearId != null) {
+        await BillingCalendarRepository(_database)
+            .completePending(includeReady: true);
+      }
+    } catch (_) {
+      // The saved fee and tariff remain available; missing dues are
+      // reconciled when the payer is selected at checkout.
+    }
+  }
+
+  /// Register one new or existing school fee for several cycles/classes
+  /// without altering prices, paid periods or prior accounting entries.
+  Future<void> configureFeeForTargets({
+    String? existingFeeId,
+    required String name,
+    required String periodicity,
+    required int amount,
+    List<String> cycleIds = const [],
+    List<String> classroomIds = const [],
+    required DateTime validFrom,
+  }) async {
+    _requireDirector();
+    if (amount <= 0) throw ArgumentError('Saisissez un tarif supérieur à zéro.');
+    if (!const {'mensuelle', 'trimestrielle', 'annuelle', 'unique'}
+        .contains(periodicity)) throw ArgumentError('Périodicité invalide.');
+    if ((cycleIds.isEmpty) == (classroomIds.isEmpty)) {
+      throw ArgumentError('Sélectionnez des cycles ou des classes.');
+    }
+    final targets = cycleIds.isNotEmpty ? cycleIds : classroomIds;
+    if (targets.length != targets.toSet().length) {
+      throw ArgumentError('Choix de cycles ou classes en double.');
+    }
+    final label = name.trim();
+    if (existingFeeId == null && label.isEmpty) {
+      throw ArgumentError('Indiquez le nom des frais.');
+    }
+    final db = _database.db;
+    final now = DateTime.now().toIso8601String();
+    final effective = validFrom.toIso8601String();
+    await db.transaction((tx) async {
+      late final String feeId;
+      if (existingFeeId != null) {
+        final rows = await tx.query('fee_categories',
+          columns: ['id', 'periodicity'], where: 'id=? AND active=1',
+          whereArgs: [existingFeeId], limit: 1);
+        if (rows.isEmpty) throw StateError('Rubrique introuvable.');
+        if (rows.first['periodicity'] != periodicity) {
+          throw StateError('La périodicité ne correspond pas à cette rubrique.');
+        }
+        feeId = existingFeeId;
+      } else {
+        final duplicates = firstIntValue(await tx.rawQuery(
+          'SELECT COUNT(*) FROM fee_categories WHERE lower(name)=lower(?) AND active=1',
+          [label])) ?? 0;
+        if (duplicates > 0) {
+          throw StateError('Ces frais existent déjà : sélectionnez la rubrique existante.');
+        }
+        feeId = _uuid.v4();
+        await tx.insert('fee_categories', {
+          'id': feeId, 'name': label, 'periodicity': periodicity,
+          'active': 1, 'created_at': now, 'updated_at': now,
+        });
+        await tx.insert('audit_log', {
+          'entity_type': 'fee_category', 'entity_id': feeId,
+          'action': 'create', 'new_value': label + '/' + periodicity,
+          'operator_name': OperatorSession.current,
+          'operator_id': OperatorSession.userId,
+          'operator_role': OperatorSession.role, 'created_at': now,
+        });
+      }
+      final classroom = classroomIds.isNotEmpty;
+      for (final targetId in targets) {
+        final active = await tx.rawQuery(classroom
+          ? 'SELECT id FROM classrooms WHERE id=? AND active=1'
+          : 'SELECT id FROM cycles WHERE id=? AND active=1', [targetId]);
+        if (active.isEmpty) {
+          throw StateError('Une classe ou un cycle sélectionné est désactivé.');
+        }
+        final current = await tx.rawQuery(classroom
+          ? 'SELECT id FROM fee_grid WHERE fee_id=? AND classroom_id=? AND valid_to IS NULL'
+          : 'SELECT id FROM fee_grid WHERE fee_id=? AND classroom_id IS NULL AND cycle_id=? AND valid_to IS NULL',
+          [feeId, targetId]);
+        if (current.isNotEmpty) {
+          throw StateError('Un tarif existe déjà pour cette rubrique et ce groupe. '
+            'Utilisez la grille tarifaire pour le modifier.');
+        }
+        final tariffId = _uuid.v4();
+        await tx.insert('fee_grid', {
+          'id': tariffId, 'fee_id': feeId,
+          'cycle_id': classroom ? null : targetId,
+          'classroom_id': classroom ? targetId : null,
+          'amount': amount, 'valid_from': effective,
+          'created_at': now,
+        });
+        await tx.insert('audit_log', {
+          'entity_type': 'fee_grid', 'entity_id': tariffId,
+          'action': 'create',
+          'new_value': feeId + '/' + (classroom ? '' : targetId) +
+              '/' + (classroom ? targetId : '') + '/' +
+              amount.toString() + '/' + effective,
+          'operator_name': OperatorSession.current,
+          'operator_id': OperatorSession.userId,
+          'operator_role': OperatorSession.role, 'created_at': now,
+        });
+      }
+    });
+    try {
+      await BillingCalendarRepository(_database)
+          .completePending(includeReady: true);
+    } catch (_) {
+      // Missing obligations are reconciled on the next payer selection.
+    }
+  }
+
   Future<void> updateFeeCategory({required String feeId,required String name,required String periodicity,bool active=true}) async {
     _requireDirector();final trimmed=name.trim();if(trimmed.isEmpty)throw ArgumentError('Le nom est obligatoire.');
     if(!const {'mensuelle','trimestrielle','annuelle','unique'}.contains(periodicity))throw ArgumentError('Périodicité invalide.');
@@ -797,16 +984,35 @@ class FinanceRepository {
   /// Encaissement pour un élève individuel. Pour cette release candidate,
   /// toute avance non allouée est interdite : un paiement doit correspondre
   /// à des échéances existantes et ne peut pas dépasser le solde restant.
-  Future<String> recordPayment({required String studentId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator}) async {
+  Future<String> recordPayment({required String studentId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator, String? operationId}) async {
     _requireCollectionPermission();
     if (amount <= 0) throw ArgumentError.value(amount, 'amount', 'Le montant doit être positif');
     final db = _database.db;
     final now = DateTime.now();
-    final id = _uuid.v4();
+    final id = operationId ?? _uuid.v4();
+    if (operationId != null && operationId.trim().isEmpty) {
+      throw ArgumentError('Identifiant d’opération invalide.');
+    }
     late String receipt;
     await db.transaction((txn) async {
       final yearId = await _activeSchoolYearId(txn);
       if (yearId == null) throw StateError('Aucune année scolaire active.');
+      // Retrying the same device operation must return its original receipt
+      // without inserting a second payment, allocation or cash movement.
+      if (operationId != null) {
+        final existing = await txn.query('payments',
+          columns: ['receipt_number', 'student_id', 'amount', 'payment_method'],
+          where: 'id=?', whereArgs: [operationId], limit: 1);
+        if (existing.isNotEmpty) {
+          final recorded = existing.single;
+          if (recorded['student_id'] != studentId ||
+              recorded['amount'] != amount || recorded['payment_method'] != method) {
+            throw StateError('Cette opération a déjà été validée avec un autre montant ou bénéficiaire.');
+          }
+          receipt = recorded['receipt_number'] as String;
+          return;
+        }
+      }
       final outstanding = firstIntValue(await txn.rawQuery('''
         SELECT COALESCE(SUM(amount_due - amount_paid), 0)
         FROM dues
@@ -881,16 +1087,35 @@ class FinanceRepository {
   /// échéances de tous les enfants de la famille, de la plus ancienne à la
   /// plus récente, ce qui évite d'avoir à encaisser élève par élève pour une
   /// fratrie.
-  Future<String> recordFamilyPayment({required String familyId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator}) async {
+  Future<String> recordFamilyPayment({required String familyId, required int amount, required String method, String? note, List<String>? dueIds, String? cashAccountId, String? transactionReference, String? payerPhone, String? paymentOperator, String? operationId}) async {
     _requireCollectionPermission();
     if (amount <= 0) throw ArgumentError.value(amount, 'amount', 'Le montant doit être positif');
     final db = _database.db;
     final now = DateTime.now();
-    final id = _uuid.v4();
+    final id = operationId ?? _uuid.v4();
+    if (operationId != null && operationId.trim().isEmpty) {
+      throw ArgumentError('Identifiant d’opération invalide.');
+    }
     late String receipt;
     await db.transaction((txn) async {
       final yearId = await _activeSchoolYearId(txn);
       if (yearId == null) throw StateError('Aucune année scolaire active.');
+      // Retrying the same device operation must return its original receipt
+      // without inserting a second payment, allocation or cash movement.
+      if (operationId != null) {
+        final existing = await txn.query('payments',
+          columns: ['receipt_number', 'family_id', 'amount', 'payment_method'],
+          where: 'id=?', whereArgs: [operationId], limit: 1);
+        if (existing.isNotEmpty) {
+          final recorded = existing.single;
+          if (recorded['family_id'] != familyId ||
+              recorded['amount'] != amount || recorded['payment_method'] != method) {
+            throw StateError('Cette opération a déjà été validée avec un autre montant ou bénéficiaire.');
+          }
+          receipt = recorded['receipt_number'] as String;
+          return;
+        }
+      }
       final outstanding = firstIntValue(await txn.rawQuery(
             "SELECT COALESCE(SUM(amount_due - amount_paid), 0) FROM dues WHERE family_id = ? AND school_year_id = ? AND status != 'paid'",
             [familyId, yearId],

@@ -7,33 +7,26 @@ import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_ui.dart';
 import '../../data/models/finance_full.dart';
 
-/// Une échéance future est une obligation programmée, pas un retard.
-class DuesScreen extends ConsumerWidget {
+enum _DueView { overdue, today, upcoming, undated, all }
+
+/// Suivi par périmètre scolaire : même source de données que les exports.
+class DuesScreen extends ConsumerStatefulWidget {
   const DuesScreen({super.key});
 
-  DateTime _day(DateTime value) =>
-      DateTime(value.year, value.month, value.day);
+  @override
+  ConsumerState<DuesScreen> createState() => _DuesScreenState();
+}
 
-  Widget _section(String title, List<DueItem> dues, {bool emphasize = false}) {
-    if (dues.isEmpty) return const SizedBox.shrink();
-    final total = dues.fold<int>(0, (sum, d) => sum + d.balance);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(padding: const EdgeInsets.fromLTRB(4, 18, 4, 6),
-        child: Text(title + ' · ' + formatXaf(total),
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
-      ...dues.map((due) => Card(child: ListTile(
-        leading: Icon(emphasize ? Icons.warning_amber_rounded
-          : Icons.calendar_today_outlined),
-        title: Text(due.studentName),
-        subtitle: Text(due.feeName + ' · ' + due.periodKey +
-          (due.dueDate == null ? '' :
-           ' · limite ' + due.dueDate!.day.toString().padLeft(2, '0') + '/' +
-            due.dueDate!.month.toString().padLeft(2, '0') + '/' +
-            due.dueDate!.year.toString())),
-        trailing: Text(formatXaf(due.balance),
-          style: const TextStyle(fontWeight: FontWeight.w800)),
-      ))),
-    ]);
+class _DuesScreenState extends ConsumerState<DuesScreen> {
+  final _search = TextEditingController();
+  String? _yearId, _cycleId, _classroomId;
+  _DueView _view = _DueView.overdue;
+  Future<List<Map<String, Object?>>>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
   }
 
   @override
@@ -69,24 +62,45 @@ class DuesScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<_DueView>(
+              showSelectedIcon: false,
+              multiSelectionEnabled: false,
+              selected: {_view},
+              onSelectionChanged: (selected) => setState(() => _view = selected.first),
+              segments: [
+                for (final view in _DueView.values)
+                  ButtonSegment(value: view, label: Text(_label(view))),
+              ],
+            ),
+          ),
+        ]),
+      )),
+      if (!hasYear)
+        const Expanded(child: Center(
+          child: Text('Sélectionnez ou activez une année scolaire '
+              'pour consulter les impayés.'),
+        ))
+      else
+        Expanded(child: FutureBuilder<List<Map<String, Object?>>>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) return Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Text('Chargement impossible : ${snapshot.error}'),
+                TextButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réessayer'),
+                ),
+              ]),
             );
-          }
-          final now = DateTime.now();
-          final today = DateTime(now.year, now.month, now.day);
-          final past = <DueItem>[];
-          final todayDues = <DueItem>[];
-          final upcoming = <DueItem>[];
-          final undated = <DueItem>[];
-          for (final item in items) {
-            final due = item.dueDate;
-            if (due == null) {
-              undated.add(item);
-            } else if (_day(due).isBefore(today)) {
-              past.add(item);
-            } else if (_day(due).isAtSameMomentAs(today)) {
-              todayDues.add(item);
-            } else {
-              upcoming.add(item);
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
             }
           }
           return ListView(padding: const EdgeInsets.all(16), children: [

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../services/super_admin_service.dart';
+import 'super_admin_school_detail_screen.dart';
+import 'super_admin_history_screen.dart';
+import 'super_admin_console_filters.dart';
 
 class SuperAdminConsoleScreen extends StatefulWidget {
   const SuperAdminConsoleScreen({super.key});
@@ -15,6 +18,11 @@ class SuperAdminConsoleScreen extends StatefulWidget {
 class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
   final _email = TextEditingController();
   final _code = TextEditingController();
+  final _schoolQuery = TextEditingController();
+  final _activityQuery = TextEditingController();
+  String _schoolStatus = 'all';
+  DateTime? _lastSuccessAt;
+  bool _lastRefreshFailed = false;
   final _service = SuperAdminService.instance;
 
   Timer? _timer;
@@ -29,6 +37,8 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
     _timer?.cancel();
     _email.dispose();
     _code.dispose();
+    _schoolQuery.dispose();
+    _activityQuery.dispose();
     super.dispose();
   }
 
@@ -47,7 +57,7 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
       await _refresh();
       _timer?.cancel();
       _timer = Timer.periodic(
-        const Duration(seconds: 5),
+        const Duration(seconds: 30),
         (_) => _refresh(silent: true),
       );
     } catch (e) {
@@ -67,10 +77,15 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
         setState(() {
           _data = value;
           _error = null;
+          _lastRefreshFailed = false;
+          _lastSuccessAt = DateTime.now();
         });
       }
     } catch (e) {
-      if (mounted && !silent) setState(() => _error = _message(e));
+      if (mounted) setState(() {
+        _lastRefreshFailed = true;
+        if (!silent) _error = _message(e);
+      });
       if (!_service.isAuthenticated && mounted) {
         _timer?.cancel();
         setState(() => _data = null);
@@ -184,9 +199,12 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
 
   Widget _dashboard() {
     final totals = _map(_data!['totals']);
-    final schools = _list(_data!['organizations']);
+    final allSchools = _list(_data!['organizations']);
+    final schools = SuperAdminConsoleFilters.schools(
+      allSchools, search: _schoolQuery.text, status: _schoolStatus);
     final requests = _list(_data!['pending_requests']);
-    final events = _list(_data!['recent_activity']);
+    final events = SuperAdminConsoleFilters.activities(
+      _list(_data!['recent_activity']), search: _activityQuery.text);
 
     return Scaffold(
       appBar: AppBar(
@@ -219,16 +237,30 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
               padding: EdgeInsets.zero,
               child: ListTile(
                 leading: const Icon(Icons.monitor_heart_rounded),
-                title: const Text(
-                  'Supervision active',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                title: Text(
+                  _lastRefreshFailed ? 'Supervision interrompue' : 'Supervision connectée',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
-                subtitle: const Text('Actualisation automatique toutes les 5 secondes'),
-                trailing: const _LiveDot(),
+                subtitle: Text(_lastRefreshFailed
+                    ? 'Actualisation échouée : données éventuellement anciennes'
+                    : 'Actualisation toutes les 30 secondes · Dernier succès : '
+                        '${_lastSuccessAt?.hour.toString().padLeft(2, '0') ?? '—'}:'
+                        '${_lastSuccessAt?.minute.toString().padLeft(2, '0') ?? '—'}'),
+                trailing: _LiveDot(active: !_lastRefreshFailed),
               ),
             ),
             const SizedBox(height: 12),
             _Metrics(totals: totals),
+            if ((totals['subscriptions_expired'] as num? ?? 0) > 0 ||
+                (totals['sync_errors_recent'] as num? ?? 0) > 0) ...[
+              const SizedBox(height: 10),
+              Card(child: ListTile(
+                leading: const Icon(Icons.warning_amber_outlined),
+                title: const Text('Alertes de supervision'),
+                subtitle: Text('${totals['subscriptions_expired'] ?? 0} abonnement(s) expiré(s) · '
+                    '${totals['sync_errors_recent'] ?? 0} dernier(s) incident(s) de synchronisation connu(s)'),
+              )),
+            ],
             const SizedBox(height: 14),
             FilledButton.icon(
               onPressed: () => setState(() => _showCreate = !_showCreate),
@@ -253,6 +285,18 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
               title: 'Demandes administrateurs',
               subtitle: requests.length.toString() + ' en attente',
             ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => const SuperAdminHistoryScreen(
+                    kind: SuperAdminHistoryKind.requests,
+                  )),
+                ),
+                icon: const Icon(Icons.history_outlined),
+                label: const Text('Historique des demandes approuvées et refusées'),
+              ),
+            ),
             const SizedBox(height: 10),
             if (requests.isEmpty)
               const _EmptyCard(
@@ -263,11 +307,11 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
               for (final request in requests) ...[
                 _PendingRequestCard(
                   request: request,
-                  onReviewed: (approve, cycle) async {
+                  onReviewed: (approve, cycle, note) async {
                     if (approve) {
                       await _service.approveRequest(request['id'].toString(), cycle);
                     } else {
-                      await _service.rejectRequest(request['id'].toString());
+                      await _service.rejectRequest(request['id'].toString(), note: note);
                     }
                     await _refresh();
                   },
@@ -277,7 +321,29 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
             const SizedBox(height: 22),
             _TitleRow(
               title: 'Établissements',
-              subtitle: schools.length.toString() + ' au total',
+              subtitle: '${schools.length}/${allSchools.length} affichés',
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _schoolQuery,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Rechercher une école, un code ou un responsable',
+                prefixIcon: Icon(Icons.search_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _schoolStatus,
+              decoration: const InputDecoration(labelText: 'Filtrer par statut d’abonnement'),
+              items: const [
+                DropdownMenuItem(value: 'all', child: Text('Tous les statuts')),
+                DropdownMenuItem(value: 'active', child: Text('Abonnement actif')),
+                DropdownMenuItem(value: 'expired', child: Text('Abonnement expiré')),
+                DropdownMenuItem(value: 'suspended', child: Text('École suspendue')),
+                DropdownMenuItem(value: 'legacy', child: Text('École historique')),
+              ],
+              onChanged: (status) => setState(() => _schoolStatus = status ?? 'all'),
             ),
             const SizedBox(height: 10),
             if (schools.isEmpty)
@@ -293,17 +359,45 @@ class _SuperAdminConsoleScreenState extends State<SuperAdminConsoleScreen> {
                     await _service.setSchoolActive(school['id'].toString(), active);
                     await _refresh();
                   },
-                  onRenew: (cycle) async {
-                    await _service.renewSubscription(school['id'].toString(), cycle);
+                  onRenew: (cycle, reference) async {
+                    await _service.renewSubscription(school['id'].toString(), cycle,
+                        reference: reference);
                     await _refresh();
                   },
+                  onDetails: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(builder: (_) => SuperAdminSchoolDetailScreen(
+                      organizationId: school['id'].toString(),
+                      schoolName: school['name']?.toString() ?? 'Établissement',
+                    )),
+                  ),
                 ),
                 const SizedBox(height: 10),
               ],
             const SizedBox(height: 18),
-            const _TitleRow(
-              title: 'Activité en direct',
-              subtitle: '30 dernières opérations',
+            _TitleRow(
+              title: 'Activité récente',
+              subtitle: '${events.length} résultat(s) parmi les derniers événements',
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => const SuperAdminHistoryScreen(
+                    kind: SuperAdminHistoryKind.activity,
+                  )),
+                ),
+                icon: const Icon(Icons.manage_history_outlined),
+                label: const Text('Journal complet et copie CSV'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _activityQuery,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Filtrer les activités récentes',
+                prefixIcon: Icon(Icons.manage_search_outlined),
+              ),
             ),
             const SizedBox(height: 10),
             if (events.isEmpty)
@@ -378,6 +472,14 @@ class _Metrics extends StatelessWidget {
         'En ligne',
         (totals['online_devices'] ?? 0).toString(),
       ),
+      (Icons.credit_card_outlined, 'Abonnements actifs',
+       (totals['subscriptions_active'] ?? 0).toString()),
+      (Icons.event_busy_outlined, 'Abonnements expirés',
+       (totals['subscriptions_expired'] ?? 0).toString()),
+      (Icons.pending_actions_outlined, 'Demandes en attente',
+       (totals['requests_pending'] ?? 0).toString()),
+      (Icons.sync_problem_outlined, 'Incidents sync. récents',
+       (totals['sync_errors_recent'] ?? 0).toString()),
     ];
 
     return LayoutBuilder(
@@ -606,10 +708,16 @@ class _CreateSchoolCardState extends State<_CreateSchoolCard> {
 }
 
 class _SchoolCard extends StatefulWidget {
-  const _SchoolCard({required this.school, required this.onToggle, required this.onRenew});
+  const _SchoolCard({
+    required this.school,
+    required this.onToggle,
+    required this.onRenew,
+    required this.onDetails,
+  });
   final Map<String, dynamic> school;
   final Future<void> Function(bool active) onToggle;
-  final Future<void> Function(String cycle) onRenew;
+  final Future<void> Function(String cycle, String reference) onRenew;
+  final VoidCallback onDetails;
 
   @override
   State<_SchoolCard> createState() => _SchoolCardState();
@@ -703,6 +811,21 @@ class _SchoolCardState extends State<_SchoolCard> {
               'Dernière synchro : ' + _date(sync['updated_at']),
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (_asMap(school['latest_sync_event'])['event_type'] == 'sync_error')
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.warning_amber_outlined),
+                title: Text('Dernier incident de synchronisation connu'),
+                subtitle: Text('Consultez la fiche pour le détail.'),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: widget.onDetails,
+                icon: const Icon(Icons.open_in_new_outlined),
+                label: const Text('Voir la fiche complète'),
+              ),
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 12,
@@ -720,30 +843,54 @@ class _SchoolCardState extends State<_SchoolCard> {
                 ),
                 FilledButton.icon(
                   onPressed: _busy ? null : () async {
+                    final reference = TextEditingController();
                     final confirmed = await showDialog<bool>(
                       context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Confirmer le paiement ?'),
-                        content: const Text(
-                          'Cette action enregistrera un paiement validé et '
-                          'activera ou prolongera l’abonnement. '
-                          'Ne confirmez que lorsque le paiement est reçu.',
+                      builder: (dialogContext) => StatefulBuilder(
+                        builder: (dialogContext, update) => AlertDialog(
+                          title: const Text('Confirmer le renouvellement ?'),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Vérifiez la réception du paiement. '
+                                'Ce renouvellement prolongera l’accès de cette école.'),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: reference,
+                                onChanged: (_) => update(() {}),
+                                decoration: const InputDecoration(
+                                  labelText: 'Référence du paiement / justificatif *',
+                                  hintText: 'Ex. CAISSE-001 ou VIRT-2026-001',
+                                ),
+                              ),
+                            ],
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Annuler'),
+                            ),
+                            FilledButton(
+                              onPressed: reference.text.trim().length >= 3
+                                  ? () => Navigator.pop(dialogContext, true) : null,
+                              child: const Text('Paiement confirmé'),
+                            ),
+                          ],
                         ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context, false),
-                              child: const Text('Annuler')),
-                          FilledButton(onPressed: () => Navigator.pop(context, true),
-                              child: const Text('Paiement reçu')),
-                        ],
                       ),
                     );
+                    final paymentReference = reference.text.trim();
+                    reference.dispose();
                     if (confirmed != true || !mounted) return;
                     setState(() => _busy = true);
                     try {
-                      await widget.onRenew(_cycle);
+                      await widget.onRenew(_cycle, paymentReference);
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Abonnement renouvelé et référencé.')));
                     } catch (e) {
                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(e.toString())));
+                        SnackBar(content: Text('Renouvellement refusé : $e')));
                     } finally {
                       if (mounted) setState(() => _busy = false);
                     }
@@ -864,15 +1011,16 @@ class _TitleRow extends StatelessWidget {
 }
 
 class _LiveDot extends StatelessWidget {
-  const _LiveDot();
+  const _LiveDot({required this.active});
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 11,
       height: 11,
-      decoration: const BoxDecoration(
-        color: Colors.green,
+      decoration: BoxDecoration(
+        color: active ? Colors.green : Colors.orange,
         shape: BoxShape.circle,
       ),
     );
@@ -917,7 +1065,7 @@ class _EmptyCard extends StatelessWidget {
 class _PendingRequestCard extends StatefulWidget {
   const _PendingRequestCard({required this.request, required this.onReviewed});
   final Map<String, dynamic> request;
-  final Future<void> Function(bool approve, String cycle) onReviewed;
+  final Future<void> Function(bool approve, String cycle, String note) onReviewed;
 
   @override
   State<_PendingRequestCard> createState() => _PendingRequestCardState();
@@ -928,30 +1076,52 @@ class _PendingRequestCardState extends State<_PendingRequestCard> {
   String _cycle = 'monthly';
 
   Future<void> _review(bool approve) async {
+    final reason = TextEditingController();
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(approve ? 'Valider cet administrateur ?' : 'Refuser la demande ?'),
-        content: Text(approve
-          ? 'Confirmez uniquement après réception du paiement. '
-            'Un établissement et un abonnement actif seront alors créés.'
-          : 'Cette action refuse la demande sans créer de compte actif.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(context, true),
-            child: Text(approve ? 'Valider le paiement' : 'Refuser')),
-        ],
+      builder: (dialog) => StatefulBuilder(
+        builder: (dialog, update) => AlertDialog(
+          title: Text(approve ? 'Valider cet administrateur ?' : 'Refuser la demande ?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(approve
+                ? 'Confirmez uniquement après réception du paiement. '
+                  'L’école et son abonnement seront alors créés.'
+                : 'Un motif sera enregistré dans l’historique de la demande.'),
+              if (!approve) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reason,
+                  onChanged: (_) => update(() {}),
+                  maxLength: 500,
+                  decoration: const InputDecoration(labelText: 'Motif du refus *'),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialog, false),
+                child: const Text('Annuler')),
+            FilledButton(
+              onPressed: !approve && reason.text.trim().isEmpty
+                  ? null : () => Navigator.pop(dialog, true),
+              child: Text(approve ? 'Valider le paiement' : 'Refuser'),
+            ),
+          ],
+        ),
       ),
     );
+    final note = reason.text.trim();
+    reason.dispose();
     if (confirm != true || !mounted) return;
     setState(() => _busy = true);
     try {
-      await widget.onReviewed(approve, _cycle);
+      await widget.onReviewed(approve, _cycle, note);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+        SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

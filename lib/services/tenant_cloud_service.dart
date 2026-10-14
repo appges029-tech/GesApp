@@ -7,6 +7,7 @@ import '../core/cloud/supabase_config.dart';
 import '../core/db/app_database.dart';
 import '../core/session/operator_session.dart';
 import '../core/security/manager_password_policy.dart';
+import 'device_quick_unlock_service.dart';
 import '../core/session/tenant_subscription_access.dart';
 import '../data/repositories/security_repository.dart';
 import '../data/repositories/tenant_repository.dart';
@@ -147,7 +148,7 @@ class TenantCloudService {
     if (result == null) return null;
     final dynamic raw = result is List ? (result.isEmpty ? null : result.first) : result;
     if (raw is! Map) return null;
-    final map = Map<String, dynamic>.from(raw as Map);
+    final map = Map<String, dynamic>.from(raw);
     final membership = TenantMembershipCache(
       organizationId: map['organization_id'].toString(),
       organizationCode: map['organization_code'].toString(),
@@ -277,6 +278,10 @@ class TenantCloudService {
       throw StateError('Le nouveau mot de passe est enregistré, mais la confirmation du compte a échoué. Reconnectez-vous en ligne.');
     }
     await _cacheLocalCredential(membership, newPassword);
+    // A password rotation revokes previously enrolled on-device shortcuts.
+    // Re-enrollment requires the freshly validated primary password.
+    await DeviceQuickUnlockService.instance.clearProfile(
+      membership.organizationId, membership.cloudUserId);
     return membership;
   }
 
@@ -293,7 +298,9 @@ class TenantCloudService {
     // Le code PIN hors ligne doit respecter la même séparation des écoles.
     await _tenantRepo.ensureOrganizationIsolated(cached.organizationId);
     await TenantSubscriptionAccess.instance.restore(cached.organizationId);
-    if (!TenantSubscriptionAccess.instance.isAllowed) return false;
+    if (!TenantSubscriptionAccess.instance.isAllowed) {
+      return false;
+    }
     final username = cached.username?.trim().toLowerCase();
     if (username == null || username.isEmpty) return false;
 

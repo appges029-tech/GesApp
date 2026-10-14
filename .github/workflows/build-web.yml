@@ -1,6 +1,25 @@
 name: GesApp Web CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-web.yml'
+      - 'lib/features/security/super_admin_*.dart'
+      - 'lib/services/super_admin_service.dart'
+      - 'lib/features/finance/**'
+      - 'lib/features/reports/**'
+      - 'lib/data/repositories/report_repository.dart'
+      - 'lib/data/repositories/recovery_repository.dart'
+      - 'lib/services/report_pdf_service.dart'
+      - 'lib/services/billing_pdf_service.dart'
+      - 'lib/services/bilan_financier_pdf_service.dart'
+      - 'lib/services/document_identity.dart'
+      - 'lib/services/unpaid_report_presenter.dart'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-web.yml'
   workflow_dispatch:
 
 permissions:
@@ -57,7 +76,7 @@ jobs:
         run: flutter test
 
       - name: Verify Supabase configuration for production deploy
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
@@ -80,7 +99,9 @@ jobs:
             --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" \
             --dart-define=SUPABASE_REDIRECT_URL="$SUPABASE_REDIRECT_URL"
 
-      - name: Upload Web artifact
+      - name: Upload Web artifact (manual build only)
+        if: github.event_name == 'workflow_dispatch'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: GesApp-Web

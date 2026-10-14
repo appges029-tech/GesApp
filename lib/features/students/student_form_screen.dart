@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/layout/responsive_layout.dart';
 import '../../core/providers/repository_providers.dart';
+import '../../core/utils/friendly_error.dart';
 import '../../core/windows/windows_page_scaffold.dart';
 import '../../core/windows/windows_panels.dart';
 import '../../core/windows/windows_ui.dart';
@@ -82,9 +83,52 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
         false;
   }
 
+  Future<bool> _confirmStudentSummary() async {
+    final classroom = (await ref.read(classroomsProvider.future))
+      .where((c) => c.id == _classroomId).toList();
+    if (!mounted || classroom.isEmpty) return false;
+    return await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(editing ? 'Vérifier les modifications' : 'Vérifier l’inscription'),
+        content: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Élève : ' + _lastName.text.trim() + ' ' + _firstName.text.trim(),
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Classe : ' + classroom.first.cycleName + ' · ' + classroom.first.name),
+            if (_guardianName.text.trim().isNotEmpty)
+              Text('Parent ou tuteur : ' + _guardianName.text.trim()),
+            if (_guardianPhone.text.trim().isNotEmpty)
+              Text('Téléphone : ' + _guardianPhone.text.trim()),
+            const SizedBox(height: 8),
+            const Text('Vérifiez les informations avant leur enregistrement.'),
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Corriger')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirmer')),
+        ],
+      ),
+    ) ?? false;
+  }
+
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || _classroomId == null) return;
-    if (!await _confirmDuplicate()) return;
+    if (_saving || !(_formKey.currentState?.validate() ?? false) ||
+        _classroomId == null) return;
+    try {
+      if (!await _confirmDuplicate() || !mounted) return;
+      if (!await _confirmStudentSummary() || !mounted) return;
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Vérification impossible : ' + FriendlyError.message(error))));
+      return;
+    }
+    if (_saving) return;
     setState(() => _saving = true);
     try {
       final repo = ref.read(studentRepositoryProvider);
@@ -126,7 +170,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
       ref.invalidate(auditEntriesProvider);
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enregistrement impossible : $error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Inscription non enregistrée : ${FriendlyError.message(error)}')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -144,7 +188,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
         children: [
           WindowsPanel(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Identité', style: Theme.of(context).textTheme.titleLarge),
+              Text('Informations essentielles', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 14),
               ResponsiveFormRow(
                 breakpoint: 720,
@@ -154,6 +198,13 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
                   TextFormField(controller: _firstName, decoration: const InputDecoration(labelText: 'Prénom *', prefixIcon: Icon(Icons.badge_outlined)), validator: (v) => v == null || v.trim().isEmpty ? 'Prénom obligatoire' : null),
                 ],
               ),
+              ExpansionTile(
+                initiallyExpanded: editing,
+                maintainState: true,
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Informations complémentaires'),
+                subtitle: const Text('Naissance, nationalité et adresse (facultatif)'),
+                children: [
               const SizedBox(height: 12),
               ResponsiveFormRow(
                 breakpoint: 720,
@@ -187,6 +238,9 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
               const SizedBox(height: 12),
               TextFormField(controller: _originSchool, decoration: const InputDecoration(labelText: 'Établissement d’origine')),
               const SizedBox(height: 12),
+                ],
+              ),
+              const SizedBox(height: 12),
               classes.when(
                 data: (items) => DropdownButtonFormField<String>(
                   initialValue: items.any((e) => e.id == _classroomId) ? _classroomId : null,
@@ -204,7 +258,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
           const SizedBox(height: 14),
           WindowsPanel(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Responsable principal', style: Theme.of(context).textTheme.titleMedium),
+              Text('Parent ou tuteur', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               ResponsiveFormRow(
                 breakpoint: 720,
