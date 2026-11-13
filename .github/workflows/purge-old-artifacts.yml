@@ -1,0 +1,37 @@
+name: One-time cleanup of old Actions artifacts
+on:
+  push:
+    branches: [maintenance/purge-actions-artifacts-20261113]
+    paths: [.github/workflows/purge-old-artifacts.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  purge:
+    name: Delete artifacts older than 13 Nov 2026
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Delete old artifacts without building software
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const cutoff = Date.parse('2026-11-13T00:00:00Z');
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {owner, repo, per_page: 100});
+            let deleted = 0, freed = 0, retained = 0, failed = 0;
+            for (const a of artifacts) {
+              if (Date.parse(a.created_at) >= cutoff) { retained++; continue; }
+              try {
+                await github.rest.actions.deleteArtifact({owner, repo, artifact_id: a.id});
+                deleted++; freed += a.size_in_bytes || 0;
+                core.info('Deleted: ' + a.name + ' (' + a.id + ')');
+              } catch (e) { failed++; core.warning('Delete failed for ' + a.id + ': ' + e.message); }
+            }
+            core.info('Deleted=' + deleted + ', Retained=' + retained + ', Failed=' + failed + ', ReclaimedMiB=' + (freed / 1048576).toFixed(2));
+            await core.summary.addHeading('Artifact cleanup')
+              .addTable([
+                [{data:'Deleted',header:true},{data:'Retained',header:true},{data:'Failed',header:true},{data:'Reclaimed MiB',header:true}],
+                [String(deleted),String(retained),String(failed),(freed / 1048576).toFixed(2)]
+              ]).write();
+            if (failed) core.setFailed('Some artifact deletions failed');
